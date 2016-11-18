@@ -1,1 +1,3 @@
-Philip Deljanov
+Contributors:
+
+Philip Deljanov <philip.deljanov@gmail.com>

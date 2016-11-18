@@ -1,13 +1,16 @@
 'use strict';
 
-const asset = require('assert');
-const debug = require('debug')('capsule.config');
+const electron = require('electron')
 
+const assert = require('assert');
+const debug = require('debug')('capsule.config');
 const clone = require('clone');
 const fs = require('fs');
 const path = require('path');
 const keyPath = require('key-path-helpers');
-const deepExtend = require('deep-extend');
+
+const DeepExtend = require('deep-extend');
+const EventEmitter = require('events')
 
 const app = electron.app || electron.remote.app;
 const kUserDataPath = app.getPath('userData');
@@ -33,7 +36,7 @@ class Config extends EventEmitter {
 
     _flushSettings(settings){
 
-      const tempPath = `"${this._path}"-tmp`;
+      const tempPath = `${this._path}-tmp`;
       const finalPath = this._path;
 
       debug('Flushing settings to file.');
@@ -44,7 +47,7 @@ class Config extends EventEmitter {
         const settingsJson = JSON.stringify(settings, null, 2);
 
         // Write to temporary settings file.
-        fs.writeFile(tempPath, settings, (err) => {
+        fs.writeFile(tempPath, settingsJson, (err) => {
           if(!err){
 
             // Overwrite actual settings file with temporary file.
@@ -92,7 +95,7 @@ class Config extends EventEmitter {
     }
 
     _readSettings(path){
-        debug(`Reading settings from "${path}"...`);
+        debug(`Reading settings from ${path}...`);
 
         return new Promise((resolve, reject) => {
 
@@ -103,12 +106,14 @@ class Config extends EventEmitter {
                     resolve();
                 }
                 else if(err.code == 'ENOENT'){
-                    this._settings = clone(this._defaults);
                     debug('Settings file does not exist. Using defaults.');
-                    resolve();
+
+                    const settings = clone(this._defaults);
+                    this._settings = settings;
+                    this._flushSettings(settings).then(resolve, reject);
                 }
                 else {
-                    debug(`Failed to read settings file with "${err.code}". Using defaults.`);
+                    debug(`Failed to read settings file with ${err.code}. Using defaults.`);
                     reject();
                 }
             });
@@ -133,13 +138,13 @@ class Config extends EventEmitter {
         this._defaults = clone(defaults);
     }
 
-    extendDefaults(defaults, options){
+    extendDefaults(defaults, options = {}){
       assert.strictEqual(typeof defaults, 'object', 'Defaults must be an object.');
       assert.strictEqual(typeof options, 'object', 'Options must be an object.');
 
       return new Promise((resolve, reject) => {
         this._ensureSettings().then((settings) => {
-          deepExtend.extend(settings, defaults);
+          DeepExtend(settings, defaults);
           this._writeSettings(settings, options).then(resolve, reject);
         });
       });
@@ -165,7 +170,7 @@ class Config extends EventEmitter {
       return new Promise((resolve, reject) => {
         this._ensureSettings().then((settings) => {
 
-          const value = keyPath.getValueAtKeyPath(key);
+          const value = keyPath.getValueAtKeyPath(settings, key);
           resolve(value);
 
         }, reject);
@@ -192,5 +197,3 @@ class Config extends EventEmitter {
     }
 
 }
-
-// capsule.config.get("user.name", function(err, name){ console.log(name); })

@@ -4,7 +4,8 @@
   "description": "A cross-device cross-platform file synchronization utility.",
   "main": "main.js",
   "scripts": {
-    "start": "electron ."
+    "start": "electron .",
+    "debug": "electron --debug-brk ."
   },
   "repository": "https://github.com/electron/electron-quick-start",
   "keywords": [
