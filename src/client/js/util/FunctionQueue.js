@@ -23,6 +23,7 @@ class FunctionQueue {
 
         this._completedPromise = null;
         this._pausedPromise = null;
+        this._cancelledPromise = null;
 
         this._queue = [];
     }
@@ -35,19 +36,40 @@ class FunctionQueue {
         completedPromise && completedPromise(wasCancelled);
     }
 
-    _cancelled(){
+    _didCancel(){
+        this._cancelledPromise && this._cancelledPromise();
+        this._cancelledPromise = null;
         this._completed();
     }
 
-    _paused(){
+    _didPause(){
         this._pausedPromise && this._pausedPromise();
         this._pausedPromise = null;
     }
 
+    _onFunctionDone(){
+        this._inProgress--;
+        this._crank();
+    }
+
     _crank(){
 
-        // Only crank if running or paused.
-        if(this._running && !this._paused && !this._cancelled){
+        // If cancelled, do nothing until all in-progress functions have been executed,
+        // then complete the cancellation.
+        if(this._cancelled){
+            if(this._inProgress === 0){
+                this._didCancel();
+            }
+        }
+        // If paused, do nothing until all in-progress functions have been executed,
+        // then complete the pause.
+        else if(this._paused){
+            if(this._inProgress === 0){
+                this._didPause();
+            }
+        }
+        // Otherwise, if running...
+        else if(this._running){
 
             // If there are queued items, attempt to dispatch the functions.
             if(this._queue.length > 0){
@@ -58,49 +80,24 @@ class FunctionQueue {
 
                     // Append the done() callback to the function parameters.
                     let runner = this._queue.shift();
-                    runner.params.push(onComplete.bind(this));
+                    runner.params.push(() => { this._onFunctionDone(); });
 
-                    // Run the function next tick.
-                    process.nextTick(function(runner){
-                        runner.func.apply(null, runner.params);
-                    }, runner);
+                    process.nextTick(r => r.func.apply(null, r.params), runner);
                 }
 
-                //debug(`Running: ${this._inProgress}, Queued: ${this._queue.length}`);
-
             }
-            // Queue is empty when cranked.
+            // Queue is empty when cranked. When all in-progress functions have been executed,
+            // then complete the run.
             else {
-                // If no functions are in-progress, all work is completed.
                 if(this._inProgress === 0){
                     this._completed();
                 }
             }
         }
 
-        function onComplete(err){
-            this._inProgress--;
-
-            // TODO: Handle err.
-
-            if(this._cancelled){
-                if(this._inProgress === 0){
-                    this._cancelled();
-                }
-            }
-            else if(this._paused){
-                if(this._inProgress === 0){
-                    this._paused();
-                }
-            }
-            else {
-                this._crank();
-            }
-        }
     }
 
     enqueue(fn, ...params){
-        //debug(fn.name);
         this._queue.push({ 'func': fn, 'params': params });
         this._crank();
     }
@@ -116,16 +113,11 @@ class FunctionQueue {
 
     cancel(){
         assert(this._running === true, 'Cannot cancel if not running.');
-        this._cancelled = true;
-        return Promise.resolve();
-    }
-
-    pause(){
-        assert(this._running === true, 'Cannot pause if not running.');
         return new Promise((resolve, reject) => {
-            if(!this._paused){
-                this._paused = true;
-                this._pausedPromise = resolve
+            if(!this._cancelled){
+                this._cancelled = true;
+                this._cancelledPromise = resolve;
+                this._crank();
             }
             else {
                 resolve();
@@ -133,16 +125,30 @@ class FunctionQueue {
         });
     }
 
-    resume(){
+    pause(){
         assert(this._running === true, 'Cannot pause if not running.');
-        if(this._paused){
-            this._paused = false;
-            this._crank();
-        }
-        return Promise.resolve();
+        return new Promise((resolve, reject) => {
+            if(!this._paused && !this._cancelled){
+                this._paused = true;
+                this._pausedPromise = resolve;
+                this._crank();
+            }
+            else {
+                reject();
+            }
+        });
     }
 
-
-
+    resume(){
+        assert(this._running === true, 'Cannot pause if not running.');
+        if(this._paused && !this._cancelled){
+            this._paused = false;
+            this._crank();
+            return Promise.resolve();
+        }
+        else {
+            return Promise.reject();
+        }
+    }
 
 }

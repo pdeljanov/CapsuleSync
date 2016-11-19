@@ -2,7 +2,7 @@
 
 const assert = require('assert');
 const debug = require('debug')('capsule.fs.traverse');
-const fs = require('fs');
+const fs = require('original-fs');
 const path = require('path');
 
 const EventEmitter = require('events')
@@ -78,9 +78,9 @@ class Traverse extends EventEmitter {
 
         // Return a promise for when the traversal is complete.
         return new Promise((resolve, reject) => {
-            this._queue.run().then(() => {
+            this._queue.run().then((wasCancelled) => {
                 this._endTime = performance.now();
-                resolve();
+                resolve(wasCancelled);
             });
         });
 
@@ -143,11 +143,13 @@ class Traverse extends EventEmitter {
         function followLink(linkPath, depth, done){
             fs.readlink(linkPath, (err, linkedPath) => {
                 if(!err){
+
                     // Do not recurse down a link if it resolves to a path that is
                     // a child of the root path.
                     var resolvedPath = path.resolve(path.dirname(linkPath), linkedPath);
+
                     if (!resolvedPath.startsWith(root)){
-                        self._queue.enqueue(getStat, linkedPath, depth);
+                        self._queue.enqueue(getStat, resolvedPath, depth);
                     }
                     else {
                         debug(`Link at: ${linkPath} resolves to ${resolvedPath} which is a child of the root path.`);
