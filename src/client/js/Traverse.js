@@ -18,14 +18,19 @@ class Traverse extends EventEmitter {
         assert(typeof options, 'object', 'Options must be an object.');
 
         this._options = {
-            'followLinks': (options.followLinks || false );
+            'followLinks': (options.followLinks || false ),
             'maxDepth': (options.maxDepth || 0),
-            'retryAttempts': (options.retryAttempts || 1);
-            'numJobs': (option.maxPending || 16);
+            'retryAttempts': (options.retryAttempts || 1),
+            'numJobs': (options.maxPending || 32)
         };
 
         this._path = path;
+        this._queue = new FunctionQueue(this._options.numJobs);
 
+        this._resetStats();
+    }
+
+    _resetStats(){
         // Traversal statistics.
         this._numPaths = 0;
         this._numFiles = 0;
@@ -36,10 +41,9 @@ class Traverse extends EventEmitter {
         this._numBytes = 0;
         this._errors = 0;
 
+        this._startDate = null;
         this._startTime = null;
         this._endTime = null;
-
-        this._queue = new FunctionQueue(this._options.numJobs);
     }
 
     stats() {
@@ -52,91 +56,106 @@ class Traverse extends EventEmitter {
             'hardLinks': this._numHardLinks,
             'ignored': this._numIgnored,
             'errors': this._errors,
-            'totalSize': this._numBytes
+            'totalSize': this._numBytes,
+            'scanDateTime': this._startDate,
+            'duration': (this._endTime - this._startTime)
         };
     }
 
     traverse(){
         const root = path.normalize(this._path);
-        var depth = 0;
+        var self = this;
 
-        enqueue(getContents, [root, depth]);
+        // Reset stats to zero values.
+        this._resetStats();
 
-        return this._queue.run();
+        // Record start date, and high precision timestamp.
+        this._startDate = Date();
+        this._startTime = performance.now();
 
-        getContents(path, depth, done){
-            fs.readdir(path, {}, (err, paths) => {
+        // Enqueue the root directory.
+        this._queue.enqueue(getContents, root, 0);
+
+        // Return a promise for when the traversal is complete.
+        return new Promise((resolve, reject) => {
+            this._queue.run().then(() => {
+                this._endTime = performance.now();
+                resolve();
+            });
+        });
+
+        function getContents(root, depth, done){
+            fs.readdir(root, {}, (err, children) => {
                 if(!err){
-                    paths.forEach((path) => { enqueue(getStat, [path, depth]); });
+                    children.forEach((child) => { self._queue.enqueue(getStat, path.join(root, child), depth); });
                 }
                 else {
                     debug(`Failed enumerate path ${path} with error: ${err.code}.`);
-                    this._errors++;
+                    self._errors++;
                 }
                 done();
             });
         };
 
-        getStat(path, depth, done){
-            fs.lstat(path, (err, stat) = {
+        function getStat(path, depth, done){
+            fs.lstat(path, (err, stat) => {
                 if(!err){
-                    enqueue(applyFilter, [path, stat, depth]);
+                    self._queue.enqueue(applyFilter, path, stat, depth);
                 }
                 else {
                     debug(`Failed to stat path ${path} with error: ${err.code}.`);
-                    this._errors++;
+                    self._errors++;
                 }
                 done();
             });
         };
 
-        applyFilter(path, stat, depth, done){
-            enqueue(publish, [path, stat, depth]);
-            done();
+        function applyFilter(path, stat, depth, done){
+            publish(path, stat, depth, done);
         };
 
-        publish(path, stat, depth, done){
+        function publish(path, stat, depth, done){
             if(stat.isFile()) {
-                this._numFiles++;
-                this.emit('file', path, stat);
+                self._numFiles++;
+                self.emit('file', path, stat);
             }
             else if(stat.isDirectory()){
-                enqueue(getContents, [path], depth + 1);
-                this._numDirectories++;
-                this.emit('directory', path, stat);
+                self._queue.enqueue(getContents, path, depth + 1);
+                self._numDirectories++;
+                self.emit('directory', path, stat);
             }
             else if(stat.isSymbolicLink()){
-                this._numSoftLinks++;
+                self._numSoftLinks++;
 
-                if(this._options.followLinks){
-                    enqueue(followLink, [path, depth]);
+                if(self._options.followLinks){
+                    self._queue.enqueue(followLink, path, depth);
                 }
 
-                this.emit('link', path, stat);
+                self.emit('link', path, stat);
             }
             else {
                 debug(`Ignoring the path ${path} which is neither a file nor directory.`);
-                this._numIgnored++;
+                self._numIgnored++;
             }
             done();
         };
 
-        followLink(path, depth, done){
-            fs.readlink(path, (err, linkPath) => {
+        function followLink(linkPath, depth, done){
+            fs.readlink(linkPath, (err, linkedPath) => {
                 if(!err){
                     // Do not recurse down a link if it resolves to a path that is
                     // a child of the root path.
-                    var resolvedPath = path.normalize(path.resolve(root, linkPath));
+                    var resolvedPath = path.resolve(path.dirname(linkPath), linkedPath);
                     if (!resolvedPath.startsWith(root)){
-                        enqueue(getStat, [linkPath, depth]);
+                        self._queue.enqueue(getStat, linkedPath, depth);
                     }
                     else {
-                        debug(`Link at: ${path} resolves to ${linkPath} which is a child of the root path.`);
+                        debug(`Link at: ${linkPath} resolves to ${resolvedPath} which is a child of the root path.`);
                     }
                 }
                 else {
-                    debug(`Cannot follow link at path ${path} due to error: ${err.code}.`);
-                    this._errors++;
+                    debug(`Cannot follow link at path ${resolvedPath} due to error: ${err.code}.`);
+                    self._errors++;
                 }
                 done();
             });

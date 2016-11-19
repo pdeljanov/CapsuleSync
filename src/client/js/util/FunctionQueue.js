@@ -12,7 +12,7 @@ class FunctionQueue {
 
         this.concurrency = concurrency;
 
-        _init();
+        this._init();
     }
 
     _init(){
@@ -27,19 +27,19 @@ class FunctionQueue {
         this._queue = [];
     }
 
-    _completed()
+    _completed(){
         const completedPromise = this._completedPromise;
         const wasCancelled = this._cancelled;
-        _init();
+        this._init();
 
         completedPromise && completedPromise(wasCancelled);
     }
 
     _cancelled(){
-        _completed();
+        this._completed();
     }
 
-    _paused()
+    _paused(){
         this._pausedPromise && this._pausedPromise();
         this._pausedPromise = null;
     }
@@ -53,21 +53,28 @@ class FunctionQueue {
             if(this._queue.length > 0){
 
                 // Dispatch as many functions as possible upto the concurrency limit.
-                while((this.concurrency <= 0) || (this._inProgress < this.concurrency)){
+                while((this._queue.length > 0) && (this.concurrency <= 0 || this._inProgress < this.concurrency)){
                     this._inProgress++;
 
                     // Append the done() callback to the function parameters.
-                    var runner = this._queue.shift();
+                    let runner = this._queue.shift();
                     runner.params.push(onComplete.bind(this));
 
                     // Run the function next tick.
-                    setImmediate(runner.func.apply(this, runner.params));
+                    process.nextTick(function(runner){
+                        runner.func.apply(null, runner.params);
+                    }, runner);
                 }
 
+                //debug(`Running: ${this._inProgress}, Queued: ${this._queue.length}`);
+
             }
-            // Queue is empty when cranked. All work is therefore complete.
+            // Queue is empty when cranked.
             else {
-                this._completed();
+                // If no functions are in-progress, all work is completed.
+                if(this._inProgress === 0){
+                    this._completed();
+                }
             }
         }
 
@@ -92,7 +99,8 @@ class FunctionQueue {
         }
     }
 
-    enqueue(fn, params...){
+    enqueue(fn, ...params){
+        //debug(fn.name);
         this._queue.push({ 'func': fn, 'params': params });
         this._crank();
     }
@@ -101,6 +109,7 @@ class FunctionQueue {
         assert(this._running === false, 'Function queue is already running.');
         return new Promise((resolve, reject) => {
             this._completedPromise = resolve;
+            this._running = true;
             this._crank();
         });
     }
