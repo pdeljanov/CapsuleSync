@@ -2,12 +2,12 @@
 
 const assert = require('assert');
 
-class OperatorAST {
+class ExpressionTree {
     constructor(operator){
         this._operator = operator;
     }
 
-    test(input){
+    evaluate(input){
         if(this._operator){
             return this._operator.evaluate(input);
         }
@@ -21,9 +21,9 @@ class OperatorAST {
     }
 }
 
-class Expression {
+class Operand {
     constructor(){}
-    run(){}
+    get(){}
     serialize(){
         return {};
     }
@@ -45,36 +45,36 @@ class Operator {
 }
 
 class NullOperator extends Operator {
-    constructor(expression){
-        assert.strictEqual(typeof expression, 'object', "Expression must be an object");
+    constructor(operand){
+        assert.strictEqual(typeof operand, 'object', "Operand must be an object");
 
         super(null, null);
-        this._expression = expression;
+        this._operand = operand;
     }
 
     evaluate(input){
-        return this._expression.run(input);
+        return this._operand.get(input);
     }
 
     serialize(){
-        return { 'null': this._expression.serialize() };
+        return { 'null': this._operand.serialize() };
     }
 }
 
 class NotOperator extends Operator {
-    constructor(expression){
-        assert.strictEqual(typeof expression, 'object', "Expression must be an object");
+    constructor(operand){
+        assert.strictEqual(typeof operand, 'object', "Operand must be an object");
 
         super(null, null);
-        this._expression = expression;
+        this._operand = operand;
     }
 
     evaluate(input){
-        return !this._expression.run(input);
+        return !this._operand.get(input);
     }
 
     serialize(){
-        return { 'not': this._expression.serialize() };
+        return { 'not': this._operand.serialize() };
     }
 }
 
@@ -108,10 +108,10 @@ class OrOperator extends Operator {
 
 
 module.exports = {
-    'AST': OperatorAST,
+    'Tree': ExpressionTree,
+    'Operand': Operand,
     'Null': NullOperator,
     'Not': NotOperator,
     'And': AndOperator,
-    'Or': OrOperator,
-    'Expr': Expression
+    'Or': OrOperator
 };
