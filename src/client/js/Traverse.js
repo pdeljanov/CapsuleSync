@@ -20,8 +20,9 @@ class Traverse extends EventEmitter {
         this._options = {
             'followLinks': (options.followLinks || false ),
             'maxDepth': (options.maxDepth || 0),
-            'retryAttempts': (options.retryAttempts || 1),
-            'numJobs': (options.maxPending || 32)
+            //'retryAttempts': (options.retryAttempts || 1),
+            'numJobs': (options.maxPending || 32),
+            'progressInterval': (options.progressInterval || 0)
         };
 
         this._path = path;
@@ -43,7 +44,11 @@ class Traverse extends EventEmitter {
 
         this._startDate = null;
         this._startTime = null;
+        this._endDate = null;
         this._endTime = null;
+
+        clearInterval(this._progressInterval);
+        this._progressInterval = null;
     }
 
     stats() {
@@ -57,8 +62,9 @@ class Traverse extends EventEmitter {
             'ignored': this._numIgnored,
             'errors': this._errors,
             'totalSize': this._numBytes,
-            'scanDateTime': this._startDate,
-            'duration': (this._endTime - this._startTime)
+            'startDateTime': this._startDate,
+            'endDateTime': this._endDate,
+            'duration': (this._endTime || performance.now()) - this._startTime
         };
     }
 
@@ -78,8 +84,17 @@ class Traverse extends EventEmitter {
 
         // Return a promise for when the traversal is complete.
         return new Promise((resolve, reject) => {
+
+            if(this._options.progressInterval){
+                this._progressInterval = setInterval(() => { this.emit('progress', this.stats()); }, this._options.progressInterval);
+            }
+
             this._queue.run().then((wasCancelled) => {
+                clearInterval(this._progressInterval);
+                this._progressInterval = null;
+
                 this._endTime = performance.now();
+                this._endDate = Date();
                 resolve(wasCancelled);
             });
         });
@@ -117,6 +132,8 @@ class Traverse extends EventEmitter {
         function publish(path, stat, depth, done){
             if(stat.isFile()) {
                 self._numFiles++;
+                self._numBytes += stat.size;
+
                 self.emit('file', path, stat);
             }
             else if(stat.isDirectory()){
@@ -134,7 +151,7 @@ class Traverse extends EventEmitter {
                 self.emit('link', path, stat);
             }
             else {
-                debug(`Ignoring the path ${path} which is neither a file nor directory.`);
+                debug(`Ignoring the path ${path} which is neither a file nor a directory.`);
                 self._numIgnored++;
             }
             done();
@@ -153,6 +170,7 @@ class Traverse extends EventEmitter {
                     }
                     else {
                         debug(`Link at: ${linkPath} resolves to ${resolvedPath} which is a child of the root path.`);
+                        self._numIgnored++;
                     }
                 }
                 else {

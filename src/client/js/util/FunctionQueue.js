@@ -7,8 +7,8 @@ module.exports =
 class FunctionQueue {
 
     constructor(concurrency = 0){
-        assert(typeof concurrency, 'number', 'SimultaneousJobs must be an integer.');
-        assert(concurrency >= 0, 'SimultaneousJobs must be an integer greather than or equal to 0.');
+        assert(typeof concurrency, 'number', 'Concurrency must be an integer.');
+        assert(concurrency >= 0, 'Concurrency must be an integer greather than or equal to 0.');
 
         this.concurrency = concurrency;
 
