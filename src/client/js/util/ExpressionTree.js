@@ -3,6 +3,7 @@
 const assert = require('assert');
 
 class ExpressionTree {
+
     constructor(operator){
         this._operator = operator;
     }
@@ -19,6 +20,42 @@ class ExpressionTree {
     serialize(){
         return this._operator.serialize();
     }
+
+    static deserialize(serialized, operandFactory){
+        let node = Object.keys(serialized);
+        assert(node.length === 1, 'FilterSet nodes should only contain one key.');
+
+        let nodeContents = serialized[node[0]];
+
+        switch(node[0]){
+            case 'and':
+                assert(nodeContents.length === 2, 'AndOperator requires 2 child nodes.');
+                return new AndOperator(
+                    ExpressionTree.deserialize(nodeContents[0], operandFactory),
+                    ExpressionTree.deserialize(nodeContents[1], operandFactory)
+                );
+
+            case 'or':
+                assert(nodeContents.length === 2, 'OrOperator requires 2 child nodes.');
+                return new OrOperator(
+                    ExpressionTree.deserialize(nodeContents[0], operandFactory),
+                    ExpressionTree.deserialize(nodeContents[1], operandFactory)
+                );
+
+            case 'not':
+                assert(nodeContents.length === 1, 'NotEqualOperator requires 1 child node.');
+                return new NotEqualOperator(ExpressionTree.deserialize(nodeContents[0], operandFactory));
+
+            case 'null':
+                assert(nodeContents.length === 1, 'EqualOperator requires 1 child node.');
+                return new EqualOperator(ExpressionTree.deserialize(nodeContents[0], operandFactory));
+
+            default:
+                assert.strictEqual(typeof nodeContents, 'object', 'Operand node requires object as child.');
+                return operandFactory(node[0], nodeContents);
+        }
+    }
+
 }
 
 class Operand {
@@ -44,9 +81,9 @@ class Operator {
     }
 }
 
-class NullOperator extends Operator {
+class EqualOperator extends Operator {
     constructor(operand){
-        assert.strictEqual(typeof operand, 'object', "Operand must be an object");
+        assert.strictEqual(typeof operand, 'object', 'Operand must be an object');
 
         super(null, null);
         this._operand = operand;
@@ -57,13 +94,13 @@ class NullOperator extends Operator {
     }
 
     serialize(){
-        return { 'null': this._operand.serialize() };
+        return { 'null': [ this._operand.serialize() ] };
     }
 }
 
-class NotOperator extends Operator {
+class NotEqualOperator extends Operator {
     constructor(operand){
-        assert.strictEqual(typeof operand, 'object', "Operand must be an object");
+        assert.strictEqual(typeof operand, 'object', 'Operand must be an object');
 
         super(null, null);
         this._operand = operand;
@@ -74,7 +111,7 @@ class NotOperator extends Operator {
     }
 
     serialize(){
-        return { 'not': this._operand.serialize() };
+        return { 'not': [ this._operand.serialize() ] };
     }
 }
 
@@ -106,12 +143,11 @@ class OrOperator extends Operator {
     }
 }
 
-
 module.exports = {
     'Tree': ExpressionTree,
     'Operand': Operand,
-    'Null': NullOperator,
-    'Not': NotOperator,
+    'Equal': EqualOperator,
+    'NotEqual': NotEqualOperator,
     'And': AndOperator,
     'Or': OrOperator
 };
