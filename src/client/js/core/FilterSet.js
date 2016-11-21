@@ -1,28 +1,26 @@
 'use strict';
 
+const assert = require('assert');
 const ExpressionTree = require('../util/ExpressionTree.js');
 
 class FilterSet extends ExpressionTree.Tree {
+
     constructor(root){
         super(root);
     }
 
     static deserialize(serialized){
+        assert.strictEqual(typeof serialized, 'object', 'Serialized must be an object.');
         return new FilterSet(super.deserialize(serialized, filterFactory));
 
         function filterFactory(name, args){
-            switch(name){
-                case 'type':  return TypeFilter.deserialize(args);
-                case 'ext':   return ExtensionFilter.deserialize(args);
-                case 'name':  return FileNameFilter.deserialize(args);
-                case 'size':  return SizeFilter.deserialize(args);
-                case 'ctime': return CreationTimeFilter.deserialize(args);
-                default:
-                    assert(true, `${name} does not name a valid filter.`);
-            }
+            const deserializer = FilterSet.Deserializers[name];
+            assert(deserializer, `No deserializer found for filter named: ${name}.`);
+            return deserializer(args);
         }
     }
 }
+FilterSet.Deserializers = {};
 
 class TypeFilter extends ExpressionTree.Operand {
     constructor(){
@@ -37,6 +35,7 @@ class TypeFilter extends ExpressionTree.Operand {
         return new TypeFilter();
     }
 }
+FilterSet.Deserializers['type'] = TypeFilter.deserialize;
 
 class ExtensionFilter extends ExpressionTree.Operand {
     constructor(){
@@ -51,6 +50,8 @@ class ExtensionFilter extends ExpressionTree.Operand {
         return new ExtensionFilter();
     }
 }
+FilterSet.Deserializers['ext'] = ExtensionFilter.deserialize;
+
 
 class FileNameFilter extends ExpressionTree.Operand {
     constructor(){
@@ -65,9 +66,11 @@ class FileNameFilter extends ExpressionTree.Operand {
         return new FileNameFilter();
     }
 }
+FilterSet.Deserializers['name'] = FileNameFilter.deserialize;
+
 
 class SizeFilter extends ExpressionTree.Operand {
-    constructor(inequality. size){
+    constructor(inequality, size){
         super();
         this._size = size;
         this._inequality = inequality;
@@ -96,6 +99,8 @@ class SizeFilter extends ExpressionTree.Operand {
         return new SizeFilter(options.size, options.inequality);
     }
 }
+FilterSet.Deserializers['size'] = SizeFilter.deserialize;
+
 
 class CreationTimeFilter extends ExpressionTree.Operand {
 
@@ -115,6 +120,8 @@ class CreationTimeFilter extends ExpressionTree.Operand {
         return new CreationTimeFilter();
     }
 }
+FilterSet.Deserializers['ctime'] = CreationTimeFilter.deserialize;
+
 
 module.exports = {
     'FilterSet': FilterSet,

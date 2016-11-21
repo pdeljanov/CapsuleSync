@@ -22,45 +22,35 @@ class ExpressionTree {
     }
 
     static deserialize(serialized, operandFactory){
-        let node = Object.keys(serialized);
-        assert(node.length === 1, 'FilterSet nodes should only contain one key.');
+        let nodeKey = Object.keys(serialized);
+        assert(nodeKey.length === 1, 'FilterSet parent nodes should only contain one key.');
 
-        let nodeContents = serialized[node[0]];
+        let nodeName = nodeKey[0];
+        let nodeChildren = serialized[nodeName];
 
-        switch(node[0]){
-            case 'and':
-                assert(nodeContents.length === 2, 'AndOperator requires 2 child nodes.');
-                return new AndOperator(
-                    ExpressionTree.deserialize(nodeContents[0], operandFactory),
-                    ExpressionTree.deserialize(nodeContents[1], operandFactory)
-                );
-
-            case 'or':
-                assert(nodeContents.length === 2, 'OrOperator requires 2 child nodes.');
-                return new OrOperator(
-                    ExpressionTree.deserialize(nodeContents[0], operandFactory),
-                    ExpressionTree.deserialize(nodeContents[1], operandFactory)
-                );
-
-            case 'not':
-                assert(nodeContents.length === 1, 'NotEqualOperator requires 1 child node.');
-                return new NotEqualOperator(ExpressionTree.deserialize(nodeContents[0], operandFactory));
-
-            case 'null':
-                assert(nodeContents.length === 1, 'EqualOperator requires 1 child node.');
-                return new EqualOperator(ExpressionTree.deserialize(nodeContents[0], operandFactory));
-
-            default:
-                assert.strictEqual(typeof nodeContents, 'object', 'Operand node requires object as child.');
-                return operandFactory(node[0], nodeContents);
+        if(ExpressionTree.Deserializers[nodeName]){
+            // TODO: Assert nodeChildren is an array.
+            //assert.strictEqual(typeof nodeChildren, 'array', 'Operator nodes require an array of child nodes.');
+            return ExpressionTree.Deserializers[nodeName](nodeChildren, operandFactory);
+        }
+        else {
+            assert.strictEqual(typeof nodeChildren, 'object', 'Operand node requires an object as a child node.');
+            return operandFactory(nodeName, nodeChildren);
         }
     }
 
 }
+ExpressionTree.Deserializers = {};
 
 class Operand {
-    constructor(){}
-    get(){}
+    constructor(){
+
+    }
+
+    get(){
+        return false;
+    }
+
     serialize(){
         return {};
     }
@@ -94,9 +84,16 @@ class EqualOperator extends Operator {
     }
 
     serialize(){
-        return { 'null': [ this._operand.serialize() ] };
+        return { 'eq': [ this._operand.serialize() ] };
+    }
+
+    static deserialize(nodes, operandFactory){
+        assert(nodes.length === 1, 'EqualOperator requires 1 node.');
+        return new EqualOperator(ExpressionTree.deserialize(nodes[0], operandFactory));
     }
 }
+ExpressionTree.Deserializers['eq'] = EqualOperator.deserialize;
+
 
 class NotEqualOperator extends Operator {
     constructor(operand){
@@ -113,7 +110,14 @@ class NotEqualOperator extends Operator {
     serialize(){
         return { 'not': [ this._operand.serialize() ] };
     }
+
+    static deserialize(nodes, operandFactory){
+        assert(nodes.length === 1, 'NotEqualOperator requires 1 node.');
+        return new NotEqualOperator(ExpressionTree.deserialize(nodes[0], operandFactory));
+    }
 }
+ExpressionTree.Deserializers['not'] = NotEqualOperator.deserialize;
+
 
 class AndOperator extends Operator {
     constructor(left, right){
@@ -127,7 +131,17 @@ class AndOperator extends Operator {
     serialize(){
         return { 'and': [ this._left.serialize(), this._right.serialize() ] };
     }
+
+    static deserialize(nodes, operandFactory){
+        assert(nodes.length === 2, 'AndOperator requires 2 nodes.');
+        return new AndOperator(
+            ExpressionTree.deserialize(nodes[0], operandFactory),
+            ExpressionTree.deserialize(nodes[1], operandFactory)
+        );
+    }
 }
+ExpressionTree.Deserializers['and'] = AndOperator.deserialize;
+
 
 class OrOperator extends Operator {
     constructor(left, right){
@@ -141,7 +155,17 @@ class OrOperator extends Operator {
     serialize(){
         return { 'or': [ this._left.serialize(), this._right.serialize() ] };
     }
+
+    static deserialize(nodes, operandFactory){
+        assert(nodes.length === 2, 'OrOperator requires 2 nodes.');
+        return new OrOperator(
+            ExpressionTree.deserialize(nodes[0], operandFactory),
+            ExpressionTree.deserialize(nodes[1], operandFactory)
+        );
+    }
 }
+ExpressionTree.Deserializers['or'] = OrOperator.deserialize;
+
 
 module.exports = {
     'Tree': ExpressionTree,
