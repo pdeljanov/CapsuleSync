@@ -31,7 +31,7 @@ class Config extends EventEmitter {
         this._debounceTimeout = null;
         this._debounceTime = debounceTimeMs;
 
-        this._path = path.join(kUserDataPath, name);
+        this._path = path.join(kUserDataPath, 'CapsuleSync', name);
     }
 
     _flushSettings(settings){
