@@ -14,19 +14,36 @@ module.exports =
 class Capsule {
 
     constructor(identifier){
-
-        let filename = `${identifier}.db`;
-        let filepath = path.join(app.getPath('userData'), 'CapsuleSync', 'capsules', filename);
-
+        const filename = `${identifier}.db`;
+        const filepath = path.join(app.getPath('userData'), 'CapsuleSync', 'capsules', filename);
         this._db = new Database(filepath);
-        this._db.open().then((firstTime, previousVersion, newVersion) => {
+    }
 
-            if()
-            this._db
-                .setTag('capsule.id', 'asFtY53V')
-                .then(() => return this._db.setTag('capsule.name', 'New Capsule'))
-                .then(() => return this._db.setTag('capsule.filters', null));
+    open(){
+        return new Promise((resolve, reject) => {
+            this._db.open()
+                .then((isNew) => {
+
+                    // If the database was newly created, populate some basic tags.
+                    if(isNew){
+                        this._db
+                            .setTag('capsule.id', 'asFtY53V')
+                            .then(()  => this._db.setTag('capsule.name', 'New Capsule'))
+                            .then(()  => this._db.setTag('capsule.filters', null))
+                            .then(()  => resolve())
+                            .catch(() => reject());
+                    }
+                    else {
+                        // Database existed previously and opened successfully.
+                        resolve();
+                    }
+                })
+                .catch((err) => {
+                    // Dang..
+                    reject();
+                });
         });
+
     }
 
     get id(){

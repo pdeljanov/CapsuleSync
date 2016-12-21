@@ -1,4 +1,6 @@
 const sqlite3 = require('sqlite3').verbose();
+const assert = require('assert');
+const debug = require('debug')('capsule.core.db.database');
 
 // ** Table Creation **
 
@@ -7,7 +9,7 @@ const kCreateTagsTable =
     (
         tag_id INTEGER PRIMARY KEY ASC,
         key TEXT UNIQUE,
-        value TEXT OR NULL
+        value TEXT
     );`
 
 const kCreateSourcesTable =
@@ -47,17 +49,17 @@ const kCreateBlobTable =
     (
         blob_id INTEGER PRIMARY KEY ASC,
         content_id INTEGER,
-        hash_sha1 TEXT OR NULL,
+        hash_sha1 TEXT,
         media_type_pri TEXT,
         media_type_sec TEXT,
         is_variant INTEGER,
         byte_length INTEGER,
         ctime TEXT,
         mtime TEXT,
-        uid INTEGER OR NULL,
-        gid INTEGER OR NULL,
-        ino INTEGER OR NULL,
-        mode INTEGER OR NULL,
+        uid INTEGER,
+        gid INTEGER,
+        ino INTEGER,
+        mode INTEGER,
         FOREIGN KEY(content_id) REFERENCES cs_content(content_id)
     );`
 
@@ -73,26 +75,46 @@ const kCreateVariantsTable =
         FOREIGN KEY(blob_id) REFERENCES cs_blobs(blob_id)
     );`
 
+const kSchemaVersion = 1;
+
+module.exports =
 class Database {
 
     constructor(path){
-        this._path = path;//':memory:';
+        this._path = path || ':memory:';
         this._db = null;
     }
 
     open(){
-        return new Promise((accept, reject) => {
+        return new Promise((resolve, reject) => {
             var db = new sqlite3.Database(this._path, (err) => {
+
+                // Enable and check PRAGMAs serially.
                 db.serialize(function(){
                     db.run('PRAGMA foreign_keys = 1;');
-                    db.run(kCreateTagsTable);
-                    db.run(kCreateSourcesTable);
-                    db.run(kCreatePathTable);
-                    db.run(kCreateContentTable);
-                    db.run(kCreateBlobTable);
-                    db.run(kCreateVariantsTable, [], (err) => {
-                        accept();
+                    db.get('PRAGMA user_version;', function(err, row) {
+
+                        // Determine if the SQLite database was just created.
+                        const isNew = (row.user_version === 0);
+                        const previousSchemaVersion = (row.user_version === 0 ? null : row.user_version);
+
+                        // Serialize table creation.
+                        db.serialize(function() {
+                            db.run(kCreateTagsTable);
+                            db.run(kCreateSourcesTable);
+                            db.run(kCreatePathTable);
+                            db.run(kCreateContentTable);
+                            db.run(kCreateBlobTable);
+                            db.run(kCreateVariantsTable);
+
+                            // Set the current schema version.
+                            db.run(`PRAGMA user_version = ${kSchemaVersion};`, function(err){
+                                // Done opening the database.
+                                resolve(isNew); //, kSchemaVersion, previousSchemaVersion);
+                            });
+                        });
                     });
+
                 });
             });
 
@@ -101,7 +123,11 @@ class Database {
     }
 
     close(){
-
+        return new new Promise((resolve, reject) => {
+            this._db.close(function(err) {
+                resolve();
+            });
+        });
     }
 
     setTag(key, value){
@@ -156,7 +182,3 @@ class Database {
     }
 
 }
-
-module.exports = {
-    'Database': Database
-};
