@@ -3,7 +3,7 @@ class AddFile {
 
     constructor(uuid, displayName, isVariant, fileName, parentDirectory, blob){
         this._params = {
-            parent_id: parentDirectory.id(),
+            parent_id: parentDirectory.id,
             uuid: uuid,
             display_name: displayName,
             name: name,

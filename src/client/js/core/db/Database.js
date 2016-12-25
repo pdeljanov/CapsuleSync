@@ -27,21 +27,24 @@ const kCreatePathTable =
     `CREATE TABLE IF NOT EXISTS cs_paths
     (
         path_id INTEGER PRIMARY KEY ASC,
-        parent_id INTEGER,
-        name TEXT,
-        display_name TEXT,
-        FOREIGN KEY(parent_id) REFERENCES cs_paths(path_id)
+        source_id INTEGER,
+        path TEXT UNIQUE,
+        storage_path TEXT UNIQUE,
+        depth INTEGER,
+        num_files INTEGER,
+        num_directories INTEGER,
+        FOREIGN KEY(source_id) REFERENCES cs_sources(source_id)
     );`
 
 const kCreateContentTable =
     `CREATE TABLE IF NOT EXISTS cs_content
     (
         content_id INTEGER PRIMARY KEY ASC,
-        parent_id INTEGER,
+        path_id INTEGER,
         ident TEXT UNIQUE,
         name TEXT,
-        display_name TEXT,
-        FOREIGN KEY(parent_id) REFERENCES cs_paths(path_id)
+        storage_name TEXT,
+        FOREIGN KEY(path_id) REFERENCES cs_paths(path_id)
     );`
 
 const kCreateBlobTable =
@@ -60,7 +63,7 @@ const kCreateBlobTable =
         gid INTEGER,
         ino INTEGER,
         mode INTEGER,
-        FOREIGN KEY(content_id) REFERENCES cs_content(content_id)
+        FOREIGN KEY(content_id) REFERENCES cs_content(content_id) ON DELETE CASCADE
     );`
 
 const kCreateVariantsTable =
@@ -72,7 +75,7 @@ const kCreateVariantsTable =
         media_type_pri TEXT,
         media_type_sec TEXT,
         media_type_params TEXT,
-        FOREIGN KEY(blob_id) REFERENCES cs_blobs(blob_id)
+        FOREIGN KEY(blob_id) REFERENCES cs_blobs(blob_id) ON DELETE CASCADE
     );`
 
 const kSchemaVersion = 1;
@@ -87,6 +90,9 @@ class Database {
 
     open(){
         return new Promise((resolve, reject) => {
+
+            debug(`Opening Capsule database at: ${this._path}`);
+
             var db = new sqlite3.Database(this._path, (err) => {
 
                 // Enable and check PRAGMAs serially.
@@ -97,6 +103,8 @@ class Database {
                         // Determine if the SQLite database was just created.
                         const isNew = (row.user_version === 0);
                         const previousSchemaVersion = (row.user_version === 0 ? null : row.user_version);
+
+                        debug(`Database version info.: New Database=${isNew}; App Schema=${kSchemaVersion}; Database Schema=${previousSchemaVersion}`);
 
                         // Serialize table creation.
                         db.serialize(function() {
@@ -109,6 +117,9 @@ class Database {
 
                             // Set the current schema version.
                             db.run(`PRAGMA user_version = ${kSchemaVersion};`, function(err){
+
+                                debug(`Database ready.`);
+
                                 // Done opening the database.
                                 resolve(isNew); //, kSchemaVersion, previousSchemaVersion);
                             });
