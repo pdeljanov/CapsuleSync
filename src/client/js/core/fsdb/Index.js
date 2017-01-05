@@ -1,7 +1,9 @@
 const xxhash = require('xxhashjs')
 const bytewise = require('bytewise');
+const keyPath = require('key-path-helpers');
 const hooks = require('level-hooks');
 const deleteRange = require('level-delete-range');
+const through2 = require('through2');
 
 function encodeKey(key){
     return '@/' + bytewise.encode(key).toString('hex');
@@ -24,12 +26,19 @@ function ensureIndex(db, indexName){
     var options = {};
     var cb = null;
 
-    if(args.length > 1){
-        options = args.shift();
+    if(args.length > 0){
+        if(typeof args[0] === 'function'){
+            cb = args.shift();
+        }
+        else if(typeof args[0] === 'object'){
+            options = args.shift();
+        }
     }
 
     if(args.length > 0) {
-        cb = args.shift();
+        if(typeof args[0] === 'function'){
+            cb = args.shift();
+        }
     }
 
     args = [];
@@ -37,44 +46,46 @@ function ensureIndex(db, indexName){
     // Use default reduce function if none is provided.
     if(!options.reduceFunc){
         options.reduceFunc = function(value){
-            // TODO: Use key-path tools to resolve this.
-            return value[indexName];
+            return keyPath.getValueAtKeyPath(value, indexName);
         }
     }
 
     if(!db.indicies[indexName]){
 
+        const indexRange = {
+            start: options.start || encodeKey([ null ]),
+            end: options.end || encodeKey([ undefined ])
+        };
+
+        // Create hooks.
+        let removeHooks = db.hooks.pre(indexRange, handleChange.bind(this));
+
         db.indicies[indexName] = {
             name: indexName,
-            options: options
+            options: options,
+            _removeHooks: removeHooks
         };
 
-        let indexableRange = {
-            start: options.start || '@/\xff',
-            end: options.end || '\xff'
-        };
+        // Build index.
+        db.createReadStream(indexRange)
+            .on('data', function(data){
+                const reducedValue = options.reduceFunc(data.value);
 
-        db.hooks.pre(indexableRange, handleChange.bind(this));
+                if(reducedValue){
+                    pause();
+                    const encodedKey = encodeKey([ indexName, reducedValue, hash(data.key) ]);
+                    db.put(encodedKey, data.key, function(){
+                        resume();
+                    });
+                }
+            })
+            .on('end', function(){
+                cb && cb();
+            });
+
     }
 
-    // Build index.
-    db.createReadStream(indexableRange)
-        .on('data', function(data){
-            const reducedValue = options.reduceFunc(data.value);
-
-            if(reducedValue){
-                pause();
-                const encodedKey = encodeKey([ indexName, reducedValue, hash(data.key) ]);
-                db.put(encodedKey, data.key, function(){
-                    resume();
-                });
-            }
-        })
-        .end(function(){
-            cb && cb();
-        });
-
-    handleChange(change, add, batch){
+    function handleChange(change, add, batch){
         const value = change.value[indexKey];
 
         // Check the index to see if the key previously had an indexed entry.
@@ -104,22 +115,20 @@ function ensureIndex(db, indexName){
 }
 
 function dropIndex(db, indexName, cb){
+
     if(db.indicies[indexName]) {
-
-        const range = {
-            start: encodeKey([indexName, null]),
-            end: encodeKey([indexName, undefined]),
-        };
-
-        db.deleteRange(range, function(err){
-            delete db.indicies[indexName];
-            cb && cb();
-        });
-
+        db.indicies[indexName]._removeHooks();
+        delete db.indicies[indexName];
     }
-    else {
+
+    const range = {
+        start: encodeKey([indexName, null]),
+        end: encodeKey([indexName, undefined])
+    };
+
+    db.deleteRange(range, function(err){
         cb && cb();
-    }
+    });
 }
 
 function createIndexStream(db, indexName, options){
@@ -128,22 +137,28 @@ function createIndexStream(db, indexName, options){
     options.start = options.start || [ null ];
     options.end = options.end || [ undefined ];
 
-    options.start = encodeKey([indexName, options.start]);
-    options.end = encodeKey([indexName, options.end]);
+    options.start = encodeKey([indexName].concat(options.start));
+    options.end = encodeKey([indexName].concat(options.end));
 
-    return db.createReadStream(options).pipe(through2.obj(data, enc, cb){
+    return db.createReadStream(options).pipe(through2.obj(function(data, enc, cb){
         cb(null, { indexKey: decodeKey(data.key)[1], dataKey: data.value });
-    });
+    }));
 
 }
 
 function getBy(db, indexName, value, cb){
     var entries = [];
-    db.createIndexStream(indexName, options).pipe(through2(data, enc, cb){
+
+    const options = {
+        start: [value, null],
+        end: [value, undefined]
+    };
+
+    db.createIndexStream(indexName, options).pipe(through2(function(data, enc, cb){
         db.get(data.dataKey, function(err, value){
             cb(null, { key: data.dataKey, value: value });
         });
-    })
+    }))
     .on('data', function(data){
         entries.push(data);
     })
@@ -160,9 +175,7 @@ function indexer(db){
     hooks(db);
 
     if(!db.deleteRange){
-        db.deleteRange = function(options, cb){
-            deleteRange(db, cb);
-        }
+        db.deleteRange = deleteRange.bind(null, db);
     }
 
     if(!db.ensureIndex){

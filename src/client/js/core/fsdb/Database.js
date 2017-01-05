@@ -186,19 +186,23 @@ class Section {
 
     _createHeader(type, id){
         return new Promise((resolve, reject) => {
+
+            const ops = [
+                { type: 'put', key: this._header, value: { type: type, id: id }},
+                { type: 'put', key: this._footer, value: { id: id }}
+            ]
+
             // Atomically insert the header and footer to the database.
-            this._db.batch()
-                    .put(this._header, { type: type, id: id })
-                    .put(this._footer, { id: id })
-                    .write((err) => {
-                        if(!err){
-                            resolve();
-                        }
-                        else {
-                            debug(`Failed to create header with error: ${err.type}.`);
-                            reject();
-                        }
-                    });
+            this._db.batch(ops, (err) => {
+                if(!err){
+                    resolve();
+                }
+                else {
+                    debug(`Failed to create header with error: ${err.type}.`);
+                    reject();
+                }
+            });
+            
         });
 
     }
