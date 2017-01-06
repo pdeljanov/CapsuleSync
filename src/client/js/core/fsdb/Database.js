@@ -154,8 +154,8 @@ class Section {
     constructor(db, prefix, identifier){
         assert(identifier.indexOf('/') === -1, 'Section identifiers may not contain a "/" character.');
         this._prefix = `${prefix}${identifier}/`;
-        this._header = `${this._prefix}/\x10`;
-        this._footer = `${this._prefix}/\xF0`;
+        this._header = `${this._prefix}\x10`;
+        this._footer = `${this._prefix}\xF0`;
         this._db = db;
     }
 
@@ -202,7 +202,7 @@ class Section {
                     reject();
                 }
             });
-            
+
         });
 
     }

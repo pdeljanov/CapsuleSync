@@ -15,7 +15,7 @@ function decodeKey(encodedKey){
 
 function hash(value){
     const XXHASH_SEED = 0xFEED1075;
-    return xxhash(value, XXHASH_SEED);
+    return xxhash.h32(value, XXHASH_SEED).toString(16);
 }
 
 // Options: { start, end, reduceFunc }
@@ -53,12 +53,12 @@ function ensureIndex(db, indexName){
     if(!db.indicies[indexName]){
 
         const indexRange = {
-            start: options.start || encodeKey([ null ]),
-            end: options.end || encodeKey([ undefined ])
+            start: options.start || '\x00',
+            end: options.end || '\xf0'
         };
 
         // Create hooks.
-        let removeHooks = db.hooks.pre(indexRange, handleChange.bind(this));
+        let removeHooks = db.hooks.pre(indexRange, handleChange);
 
         db.indicies[indexName] = {
             name: indexName,
@@ -67,26 +67,38 @@ function ensureIndex(db, indexName){
         };
 
         // Build index.
-        db.createReadStream(indexRange)
+        /*db.createReadStream(indexRange)
             .on('data', function(data){
                 const reducedValue = options.reduceFunc(data.value);
 
                 if(reducedValue){
-                    pause();
+                    //pause();
                     const encodedKey = encodeKey([ indexName, reducedValue, hash(data.key) ]);
                     db.put(encodedKey, data.key, function(){
-                        resume();
+                    //    resume();
                     });
                 }
             })
             .on('end', function(){
                 cb && cb();
             });
-
+        */
     }
 
     function handleChange(change, add, batch){
-        const value = change.value[indexKey];
+
+        // Add the value to the index.
+        if(change.type === 'put'){
+
+            // Extract the value from the indexable object.
+            const reducedValue = options.reduceFunc(change.value);
+
+            // If the indexable value could be extracted from the object, add it to the index.
+            if(reducedValue !== undefined && reducedValue !== null){
+                const encodedKey = encodeKey([ indexName, reducedValue, hash(change.key) ]);
+                add({ type: 'put', key: encodedKey, value: change.key });
+            }
+        }
 
         // Check the index to see if the key previously had an indexed entry.
         db.get(change.key, function(err, oldValue){
@@ -94,22 +106,10 @@ function ensureIndex(db, indexName){
             // Remove the old, previously indexed value if it existed.
             if(!err){
                 const oldEncodedKey = encodeKey([indexName, options.reduceFunc(oldValue), hash(change.key) ]);
-                add({ type: 'del', key: oldEncodedKey });
-            }
-
-            // Add the value to the index.
-            if(change.type === 'put'){
-
-                // Extract the value from the indexable object.
-                const reducedValue = options.reduceFunc(value);
-
-                // If the indexable value could be extracted from the object, add it to the index.
-                if(reducedValue){
-                    const encodedKey = encodeKey([ indexName, reducedValue, hash(change.key) ]);
-                    add({ type: 'put', key: encodedKey, value: change.key })
-                }
+                //compact(oldEncodedKey);
             }
         });
+
     } // handleChange
 
 }
@@ -143,7 +143,6 @@ function createIndexStream(db, indexName, options){
     return db.createReadStream(options).pipe(through2.obj(function(data, enc, cb){
         cb(null, { indexKey: decodeKey(data.key)[1], dataKey: data.value });
     }));
-
 }
 
 function getBy(db, indexName, value, cb){
@@ -154,7 +153,7 @@ function getBy(db, indexName, value, cb){
         end: [value, undefined]
     };
 
-    db.createIndexStream(indexName, options).pipe(through2(function(data, enc, cb){
+    db.createIndexStream(indexName, options).pipe(through2.obj(function(data, enc, cb){
         db.get(data.dataKey, function(err, value){
             cb(null, { key: data.dataKey, value: value });
         });
