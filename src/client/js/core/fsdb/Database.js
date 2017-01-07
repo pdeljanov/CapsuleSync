@@ -1,10 +1,11 @@
 'use strict';
 
 const assert = require('assert');
-const debug = require('debug')('capsule.core.fsdb');
+const debug = require('debug')('capsule.core.fsdb.database');
 const levelup = require('levelup');
 
-const index = require('./Index.js');
+const Partition = require('./Partition.js');
+const IndexedPartition = require('./IndexedPartition.js');
 
 class Database {
 
@@ -20,8 +21,8 @@ class Database {
             this._indicies = {};
 
             loadLevelDb(this._path)
-                .then((db)      => { this._db       = db;      return this._getSection('', '!'); })
-                .then((section) => { this._version  = section; return this._getSection('', '#'); })
+                .then((db)      => { this._db       = db;      return this._getPartition('', '!'); })
+                .then((section) => { this._version  = section; return this._getPartition('', '#'); })
                 .then((section) => { this._config   = section; resolve(); })
                 // .then(() => {
                 //     this.version().then().catch()
@@ -46,11 +47,6 @@ class Database {
                         reject(err)
                     }
                     else {
-
-                        // Install indexer.
-                        index(db);
-
-                        // Return database.
                         resolve(db);
                     }
                 });
@@ -81,17 +77,26 @@ class Database {
     }
     */
 
-    _getSection(prefix, identifier){
+    _getPartition(prefix, identifier){
         return new Promise((resolve, reject) => {
-            var section = new Section(this._db, prefix, identifier);
-            section.prepare()
-                .then(() => { resolve(section); })
+            var partition = new Partition(this._db, prefix, identifier);
+            partition.prepare()
+                .then(() => { resolve(partition); })
                 .catch(reject);
         });
     }
 
-    getSection(identifier){
-        return this._getSection('//', identifier);
+    getPartition(identifier){
+        return this._getPartition('//', identifier);
+    }
+
+    getIndexedPartition(identifier){
+        return new Promise((resolve, reject) => {
+            var partition = new IndexedPartition(this._db, '//', identifier);
+            partition.prepare()
+                .then(() => { resolve(partition); })
+                .catch(reject);
+        });
     }
 
 
@@ -148,122 +153,6 @@ Database.Version = {
 };
 
 module.exports = Database;
-
-class Section {
-
-    constructor(db, prefix, identifier){
-        assert(identifier.indexOf('/') === -1, 'Section identifiers may not contain a "/" character.');
-        this._prefix = `${prefix}${identifier}/`;
-        this._header = `${this._prefix}\x10`;
-        this._footer = `${this._prefix}\xF0`;
-        this._db = db;
-    }
-
-    _getHeader(){
-
-        return new Promise((resolve, reject) => {
-            // Get the header and footer. Ensure they match before returning the
-            // header.
-            this._db.get(this._header, (err, header) => {
-                this._db.get(this._footer, (err, footer) => {
-
-                    // Header and footer must match to be valid.
-                    if(header && footer && header.id === footer.id){
-                        resolve(header);
-                    }
-                    else if(header && footer && header.id !== footer.id){
-                        debug(`Header mismatch.`);
-                        reject(Section.Errors.HEADER_MISMATCH);
-                    }
-                    else {
-                        reject(Section.Errors.NO_HEADER);
-                    }
-                });
-            });
-        });
-
-    }
-
-    _createHeader(type, id){
-        return new Promise((resolve, reject) => {
-
-            const ops = [
-                { type: 'put', key: this._header, value: { type: type, id: id }},
-                { type: 'put', key: this._footer, value: { id: id }}
-            ]
-
-            // Atomically insert the header and footer to the database.
-            this._db.batch(ops, (err) => {
-                if(!err){
-                    resolve();
-                }
-                else {
-                    debug(`Failed to create header with error: ${err.type}.`);
-                    reject();
-                }
-            });
-
-        });
-
-    }
-
-    prepare(){
-        return new Promise((resolve, reject) => {
-
-            // Attempt to get the header, if it fails, create it.
-            this._getHeader()
-                .then((header) => resolve())
-                .catch((err) => {
-
-                    // Generate a random id for the header.
-                    const id = Math.floor(Math.random() * 0xFFFFFFFF);
-
-                    // Create the header.
-                    this._createHeader('section', id)
-                        .then(resolve)
-                        .catch(reject);
-                });
-        });
-    }
-
-
-    get(key){
-        return new Promise((resolve, reject) => {
-            const realKey = this._prefix + key;
-            this._db.get(realKey, (err, value) => {
-                if(!err){
-                    resolve(value);
-                }
-                else {
-                    reject(err);
-                }
-            });
-        });
-    }
-
-    put(key, value){
-        return new Promise((resolve, reject) => {
-            const realKey = this._prefix + key;
-            this._db.put(realKey, value, (err, value) => {
-                if(!err){
-                    resolve();
-                }
-                else {
-                    reject(err);
-                }
-            });
-        });
-    }
-
-}
-
-
-
-Section.Errors = {
-    NO_HEADER:          'NoHeader',
-    HEADER_MISMATCH:    'HeaderMistmach',
-    NO_ENTRY:           'NoEntry'
-};
 
 /*
 
