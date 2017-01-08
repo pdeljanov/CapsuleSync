@@ -1,5 +1,6 @@
 const assert = require('assert');
 const debug = require('debug')('capsule.core.fsdb.indexed_partition');
+const async = require('async');
 
 const xxhash = require('xxhashjs')
 const bytewise = require('bytewise');
@@ -12,6 +13,13 @@ const Partition = require('./Partition.js');
 function encodeKey(prefix, key){
     const encodedKey = bytewise.encode(key).toString('hex');
     return `${prefix}@${encodedKey}`;
+}
+
+function encodeKey2(prefix, indexName, value, signature){
+
+
+
+    return `${prefix}@${indexName}/${encodedValue}/${signature}`;
 }
 
 function decodeKey(encodedKey){
@@ -103,66 +111,98 @@ class IndexedPartition extends Partition {
 
     }
 
-    put(key, value, options){
-        key = `${this._prefix}/${key}`;
+    _expandBatch(batch, cb){
 
         return new Promise((resolve, reject) => {
-
-            // Attempt to get the previous value of the key we're inserting so that any indexed values may be removed.
-            this._db.get(key, (err, previousValue) => {
-                if(err && !err.notFound){
+            async.mapLimit(batch, 8, getPreviousValue.bind(this), (err, batches) => {
+                if(err){
                     reject(err);
                 }
                 else {
-                    const keyHash = hash(this._prefix, key);
-                    const prefix = this._prefix;
-
-                    var ops = [ { type: 'put', key: key, value: value }];
-
-                    // For each index in this partition...
-                    this._indicies.forEach(function(index){
-
-                        // Remove the previously indexed value from from the index.
-                        if(!err || !err.notFound){
-                            const previousReducedValue = index.reduceFunc(previousValue)
-
-                            if(previousReducedValue !== undefined && previousReducedValue !== null){
-                                const previousEncodedIndexKey = encodeKey(prefix, [index.name, previousReducedValue, keyHash]);
-                                ops.push({ type: 'del', key: previousEncodedIndexKey });
-                            }
-                        }
-
-                        // Extract the indexable value from the new object.
-                        const reducedValue = index.reduceFunc(value);
-
-                        // If the indexable value could be extracted from the object, add it to the index.
-                        if(reducedValue !== undefined && reducedValue !== null){
-                            const encodedKey = encodeKey(prefix, [ index.name, reducedValue, keyHash ]);
-                            ops.push({ type: 'put', key: encodedKey, value: key });
-                        }
-
-                    }); // forEach Index
-
-                    this._db.batch(ops, function(err){
-                        if(!err){
-                            resolve();
-                        }
-                        else{
-                            reject(err);
-                        }
-                    });
+                    resolve([].concat.apply([], batches));
                 }
             });
+        });
 
+        function expandIndicies(prefix, indicies, operation, previousValue){
+
+            const keyHash = hash(operation.key);
+
+            var operations = [ operation ];
+
+            // For each index in this partition...
+            indicies.forEach(function(index){
+
+                // Remove the previously indexed value from from the index.
+                if(previousValue){
+                    const previousReducedValue = index.reduceFunc(previousValue)
+
+                    if(previousReducedValue !== undefined && previousReducedValue !== null){
+                        const previousEncodedIndexKey = encodeKey(prefix, [ index.name, previousReducedValue, keyHash ]);
+                        operations.push({ type: 'del', key: previousEncodedIndexKey });
+                    }
+                }
+
+                // If this is a put operation, create new index values.
+                if(operation.type === 'put'){
+
+                    // Extract the indexable value from the new object.
+                    const reducedValue = index.reduceFunc(operation.value);
+
+                    // If the indexable value could be extracted from the object, add it to the index.
+                    if(reducedValue !== undefined && reducedValue !== null){
+                        const encodedKey = encodeKey(prefix, [ index.name, reducedValue, keyHash ]);
+                        operations.push({ type: 'put', key: encodedKey, value: operation.key });
+                    }
+
+                }
+
+            }); // forEach Index
+
+            return operations;
+        }
+
+        function getPreviousValue(operation, cb){
+            operation.key = `${this._prefix}/${operation.key}`;
+            this._db.get(operation.key, (err, previousValue) => {
+                const notFound = err && err.notFound;
+
+                if(err && !notFound){
+                    cb(err);
+                }
+                else {
+                    cb(null, expandIndicies(this._prefix, this._indicies, operation, notFound ? null : previousValue));
+                }
+            });
+        }
+    }
+
+    _applyBatch(batch, options){
+        return new Promise((resolve, reject) => {
+            this._expandBatch(batch).then((expandedBatch) => {
+                this._db.batch(expandedBatch, function(err){
+                    if(err){
+                        reject(err);
+                    }
+                    else {
+                        resolve();
+                    }
+                })
+            })
+            .catch(reject);
         });
     }
 
-    batch(ops, options){
-
+    put(key, value, options){
+        return this._applyBatch([ { type: 'put', key: key, value: value } ], options);
     }
 
-    del(key){
+    batch(ops, options){
+        return this._applyBatch(ops, options);
+    }
 
+    del(key, options){
+        return this._applyBatch([ { type: 'del', key: key } ], options);
     }
 
     createIndexStream(indexName, options){

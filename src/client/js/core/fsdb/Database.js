@@ -69,14 +69,6 @@ class Database {
         };
     }
 
-    /*
-    index(key) {
-        return {
-            ensure: function(name) { return this._indicies.}
-        }
-    }
-    */
-
     _getPartition(prefix, identifier){
         return new Promise((resolve, reject) => {
             var partition = new Partition(this._db, prefix, identifier);

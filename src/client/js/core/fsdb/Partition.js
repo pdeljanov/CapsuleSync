@@ -103,8 +103,8 @@ class Partition {
     batch(ops, options){
         return new Promise((resolve, reject) => {
             const prefix = this._prefix;
-            ops.forEach(function(value){
-                value.key = `${this._prefix}/${key}`;
+            ops.forEach(function(operation){
+                operation.key = `${prefix}/${operation.key}`;
             });
 
             this._db.batch(ops, (err, value) => {
