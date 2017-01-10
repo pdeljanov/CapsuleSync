@@ -4,7 +4,7 @@ const assert = require('assert');
 const debug = require('debug')('Capsule.FSDB.IndexedPartition');
 
 const async = require('async');
-const xxhash = require('xxhashjs')
+const xxhash = require('xxhashjs');
 const bytewise = require('bytewise');
 const keyPath = require('key-path-helpers');
 const deleteRange = require('level-delete-range');
