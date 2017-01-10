@@ -1,12 +1,13 @@
 'use strict';
 
 const assert = require('assert');
-const debug = require('debug')('capsule.fs.traverse');
+const debug = require('debug')('FS.Traverse');
+
 const fs = require('original-fs');
 const path = require('path');
 
 const EventEmitter = require('events')
-const FunctionQueue = require('./util/FunctionQueue.js');
+const FunctionQueue = require('../util/FunctionQueue.js');
 
 module.exports =
 class Traverse extends EventEmitter {

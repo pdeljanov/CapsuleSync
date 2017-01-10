@@ -1,8 +1,9 @@
 'use strict';
 
-const electron = require('electron')
 const assert = require('assert');
-const debug = require('debug')('capsule.core.capsule');
+const debug = require('debug')('Capsule.Capsule');
+
+const electron = require('electron')
 const path = require('path');
 const EventEmitter = require('events')
 

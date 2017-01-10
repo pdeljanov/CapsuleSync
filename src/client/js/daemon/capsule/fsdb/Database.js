@@ -1,7 +1,8 @@
 'use strict';
 
 const assert = require('assert');
-const debug = require('debug')('capsule.core.fsdb.database');
+const debug = require('debug')('Capsule.FSDB.Database');
+
 const levelup = require('levelup');
 
 const Partition = require('./Partition.js');

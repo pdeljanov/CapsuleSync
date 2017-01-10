@@ -1,7 +1,9 @@
-const assert = require('assert');
-const debug = require('debug')('capsule.core.fsdb.indexed_partition');
-const async = require('async');
+'use strict';
 
+const assert = require('assert');
+const debug = require('debug')('Capsule.FSDB.IndexedPartition');
+
+const async = require('async');
 const xxhash = require('xxhashjs')
 const bytewise = require('bytewise');
 const keyPath = require('key-path-helpers');

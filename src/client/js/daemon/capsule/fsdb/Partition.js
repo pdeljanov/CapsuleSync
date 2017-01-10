@@ -1,5 +1,7 @@
+'use strict';
+
 const assert = require('assert');
-const debug = require('debug')('capsule.core.fsdb.partition');
+const debug = require('debug')('Capsule.FSDB.Partition');
 
 class Partition {
 

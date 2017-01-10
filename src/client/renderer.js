@@ -1,6 +1,6 @@
-const Config = require('./js/Config.js');
-const Traverse = require('./js/Traverse.js');
-const Filters = require('./js/core/FilterSet.js');
+const Config = require('./js/daemon/Config.js');
+const Traverse = require('./js/daemon/fs/Traverse.js');
+const Filters = require('./js/daemon/capsule/FilterSet.js');
 
 function setup(){
 

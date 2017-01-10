@@ -1,7 +1,7 @@
 'use strict';
 
 const assert = require('assert');
-const debug = require('debug')('capsule.util.functionqueue');
+const debug = require('debug')('Util.FunctionQueue');
 
 module.exports =
 class FunctionQueue {

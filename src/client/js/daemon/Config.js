@@ -1,9 +1,9 @@
 'use strict';
 
-const electron = require('electron')
-
 const assert = require('assert');
-const debug = require('debug')('capsule.config');
+const debug = require('debug')('Config');
+
+const electron = require('electron')
 const clone = require('clone');
 const fs = require('fs');
 const path = require('path');

@@ -1,3 +1,8 @@
+'use strict';
+
+const assert = require('assert');
+const debug = require('debug')('Capsule.FSDB.TreeAdapter');
+
 class TreeAdapter {
 
     constructor(partition){
