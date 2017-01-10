@@ -15,13 +15,6 @@ function encodeKey(prefix, key){
     return `${prefix}@${encodedKey}`;
 }
 
-function encodeKey2(prefix, indexName, value, signature){
-
-
-
-    return `${prefix}@${indexName}/${encodedValue}/${signature}`;
-}
-
 function decodeKey(encodedKey){
     return bytewise.decode(new Buffer(encodedKey.split('@')[1], 'hex'));
 }
@@ -167,12 +160,13 @@ class IndexedPartition extends Partition {
             this._db.get(operation.key, (err, previousValue) => {
                 const notFound = err && err.notFound;
 
-                if(err && !notFound){
-                    cb(err);
-                }
-                else {
+                if(!err || !notFound){
                     cb(null, expandIndicies(this._prefix, this._indicies, operation, notFound ? null : previousValue));
                 }
+                else {
+                    cb(err);
+                }
+
             });
         }
     }
@@ -211,8 +205,8 @@ class IndexedPartition extends Partition {
         options.start = options.start || [ null ];
         options.end = options.end || [ undefined ];
 
-        options.start = encodeKey(this._prefix, [indexName].concat(options.start));
-        options.end = encodeKey(this._prefix, [indexName].concat(options.end));
+        options.start = encodeKey(this._prefix, [ indexName ].concat(options.start));
+        options.end = encodeKey(this._prefix, [ indexName ].concat(options.end));
 
         return this._db.createReadStream(options).pipe(through2.obj(function(data, enc, cb){
             cb(null, { indexKey: decodeKey(data.key)[1], dataKey: data.value });
@@ -222,12 +216,23 @@ class IndexedPartition extends Partition {
     getBy(indexName, value){
         return new Promise((resolve, reject) => {
 
-            var entries = [];
+            // By default, the range will just include the one value.
+            var start = value;
+            var end = value;
 
+            // However, check for ranges in the object.
+            if(typeof value === 'object' && value.start !== undefined && value.end !== undefined){
+                start = value.start;
+                end = value.end;
+            }
+
+            // Create options for the index stream.
             const options = {
-                start: [value, null],
-                end: [value, undefined]
+                start: [ start, null ],
+                end: [ end, undefined ]
             };
+
+            var entries = [];
 
             // Create an index stream to return the keys which contain the indexed value.
             this.createIndexStream(indexName, options).pipe(through2.obj((data, enc, cb) => {

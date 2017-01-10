@@ -18,15 +18,15 @@ function setup(){
     //traverser.on('directory', (path) => { console.log(`${path}`); });
     //window.capsule.traverse = traverser;
 
-    let et = new Filters.FilterSet(
-            new Filters.And(
-                new Filters.Or(new Filters.SizeFilter('>=', 1024*1024), new Filters.NotEqual(new Filters.TypeFilter())),
-                new Filters.Or(new Filters.FileNameFilter(), new Filters.CreationTimeFilter())
-            )
-        );
-    let serialized = JSON.stringify(et.serialize(), null, 2);
-    console.log(serialized);
-    console.log(Filters.FilterSet.deserialize(JSON.parse(serialized)));
+    // let et = new Filters.FilterSet(
+    //         new Filters.And(
+    //             new Filters.Or(new Filters.SizeFilter('>=', 1024*1024), new Filters.NotEqual(new Filters.TypeFilter())),
+    //             new Filters.Or(new Filters.FileNameFilter(), new Filters.CreationTimeFilter())
+    //         )
+    //     );
+    // let serialized = JSON.stringify(et.serialize(), null, 2);
+    // console.log(serialized);
+    // console.log(Filters.FilterSet.deserialize(JSON.parse(serialized)));
 
     window.capsule = {};
     window.capsule.config = config;

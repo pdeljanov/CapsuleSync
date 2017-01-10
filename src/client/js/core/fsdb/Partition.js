@@ -136,7 +136,6 @@ class Partition {
 
 Partition.Errors = {
     NO_HEADER:          'NoHeader',
-    HEADER_MISMATCH:    'HeaderMistmach',
     NO_ENTRY:           'NoEntry'
 };
 
