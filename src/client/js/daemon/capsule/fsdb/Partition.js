@@ -134,6 +134,22 @@ class Partition {
         });
     }
 
+    delRange(options){
+        return new Promise((resolve, reject) => {
+            options.start = `${this._prefix}/${options.start}\x00`;
+            options.end = `${this._prefix}/${options.end}\xff`;
+
+            this._db.delRange(range, function(err){
+                if(!err){
+                    resolve();
+                }
+                else {
+                    reject();
+                }
+            });
+        });
+    }
+
 }
 
 Partition.Errors = {

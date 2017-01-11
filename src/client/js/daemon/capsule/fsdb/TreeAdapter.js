@@ -3,30 +3,23 @@
 const assert = require('assert');
 const debug = require('debug')('Capsule.FSDB.TreeAdapter');
 
-const xxhash = require('xxhashjs')
+const xxhash = require('xxhashjs');
+const Path = require('./TreePath.js');
 
-function makeNode(value){
+function makeNode(path, value){
     return {
-        p: hash(getParentPath(path)),
-        data: value
+        p: hash(TreePath.getParentPath(path)),
+        d: value
     };
 }
 
-function getData(node){
-    return node.data;
+function getNodeData(node){
+    return {
+        path: node.key,
+        data: node.value.d
+    };
 }
 
-function getParentPath(path){
-    /*
-        home                 -> /
-        home/                -> /
-        home/user            -> home/
-        home/user/           -> home/
-        home/user/file.dat   -> home/user/
-    */
-    const offset = (path[path.length - 1] === '/') ? 1 : 0;
-    return path.substr(0, path.lastIndexOf('/', path.length - offset - 1)) + '/';
-}
 
 function hash(value){
     const XXHASH_SEED = 0xFEED1075;
@@ -41,31 +34,33 @@ class TreeAdapter {
     }
 
     index(indexName, reduceFunc){
-        indexName = `data.${indexName}`;
-        return this._partition.index(indexName, reduceFunc);
+        indexName = `d.${indexName}`;
+        return this._partition.index(indexName, function(node){
+            return reduceFunc(node.d);
+        });
     }
 
     drop(indexName){
-        indexName = `data.${indexName}`;
-        return this._partition.drop(indexName, reduceFunc);
+        indexName = `d.${indexName}`;
+        return this._partition.drop(indexName);
     }
 
     put(path, value){
-        return this._partition.put(path, makeNode(value));
+        return this._partition.put(path, makeNode(path, value));
     }
 
     get(path){
-        return this._partition.get(path).then(getData);
+        return this._partition.get(path).then(getNodeData);
     }
 
     getBy(indexName, value){
-        indexName = `data.${indexName}`;
-        return this._partition.getBy(indexName, reduceFunc);
+        indexName = `d.${indexName}`;
+        return this._partition.getBy(indexName, value).then(entries => entries.map(getNodeData));
     }
 
     getChildren(path){
-        const parentHash = hash(getParentPath(path));
-        return this._partition.getBy('parent', parentHash).then(entries => entries.map(getData));
+        const parentHash = hash(path);
+        return this._partition.getBy('p', parentHash).then(entries => entries.map(getNodeData));
     }
 
     getDescendants(path){
@@ -73,7 +68,20 @@ class TreeAdapter {
     }
 
     getParent(path){
-        this.get(getParentPath(path));
+        this.get(TreePath.getParentPath(path));
     }
 
+    moveSubTree(prefix, newPrefix){
+        return this._partition.moveRange(prefix, newPrefix);
+    }
+
+    delSubTree(path){
+        const options = {
+            start: path,
+            end: path
+        };
+        return this._partition.delRange(options);
+    }
 }
+
+module.exports = TreeAdapter;

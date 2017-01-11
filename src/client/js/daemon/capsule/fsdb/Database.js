@@ -4,6 +4,7 @@ const assert = require('assert');
 const debug = require('debug')('Capsule.FSDB.Database');
 
 const levelup = require('levelup');
+const levelupDeleteRange = require('level-delete-range');
 
 const Partition = require('./Partition.js');
 const IndexedPartition = require('./IndexedPartition.js');
@@ -35,20 +36,28 @@ class Database {
         function loadLevelDb(path){
             return new Promise((resolve, reject) => {
 
+                // LevelDB options. Set accordingly.
                 const options = {
-                    createIfMissing: true,
-                    compression: true,
-                    cacheSize: 8*1024*1024,
-                    keyEncoding: 'utf8',
-                    valueEncoding: 'json'
+                    createIfMissing:    true,
+                    compression:        true,
+                    cacheSize:          8*1024*1024,
+                    keyEncoding:        'utf8',
+                    valueEncoding:      'json'
                 };
 
+                // Instantiate the LevelDB instance.
                 levelup(path, options, function (err, db){
-                    if(err){
-                        reject(err)
+                    if(!err){
+
+                        // Install delRange function.
+                        if(!this._db.delRange){
+                            this._db.delRange = levelupDeleteRange.bind(null, db);
+                        }
+                        
+                        resolve(db);
                     }
                     else {
-                        resolve(db);
+                        reject(err)
                     }
                 });
 

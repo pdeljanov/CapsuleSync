@@ -7,7 +7,6 @@ const async = require('async');
 const xxhash = require('xxhashjs');
 const bytewise = require('bytewise');
 const keyPath = require('key-path-helpers');
-const deleteRange = require('level-delete-range');
 const through2 = require('through2');
 
 const Partition = require('./Partition.js');
@@ -162,7 +161,7 @@ class IndexedPartition extends Partition {
             this._db.get(operation.key, (err, previousValue) => {
                 const notFound = err && err.notFound;
 
-                if(!err || !notFound){
+                if(!err || notFound){
                     cb(null, expandIndicies(this._prefix, this._indicies, operation, notFound ? null : previousValue));
                 }
                 else {
@@ -199,6 +198,10 @@ class IndexedPartition extends Partition {
 
     del(key, options){
         return this._applyBatch([ { type: 'del', key: key } ], options);
+    }
+
+    delRange(options){
+        
     }
 
     createIndexStream(indexName, options){
