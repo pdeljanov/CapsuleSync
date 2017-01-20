@@ -14,6 +14,14 @@ class Partition {
         this._db = db;
     }
 
+    _encodeKey(key){
+        return `${this._prefix}:${key}`;
+    }
+
+    _decodeKey(key){
+        return key.split(':')[1];
+    }
+
     _getHeader(){
 
         return new Promise((resolve, reject) => {
@@ -76,8 +84,7 @@ class Partition {
 
     get(key, options){
         return new Promise((resolve, reject) => {
-            const realKey = `${this._prefix}/${key}`;
-            this._db.get(realKey, (err, value) => {
+            this._db.get(this._encodeKey(key), (err, value) => {
                 if(!err){
                     resolve(value);
                 }
@@ -90,8 +97,7 @@ class Partition {
 
     put(key, value, options){
         return new Promise((resolve, reject) => {
-            const realKey = `${this._prefix}/${key}`;
-            this._db.put(realKey, value, (err, value) => {
+            this._db.put(this._encodeKey(key), value, (err, value) => {
                 if(!err){
                     resolve();
                 }
@@ -102,14 +108,12 @@ class Partition {
         });
     }
 
-    batch(ops, options){
+    batch(operations, options){
         return new Promise((resolve, reject) => {
-            const prefix = this._prefix;
-            ops.forEach(function(operation){
-                operation.key = `${prefix}/${operation.key}`;
-            });
 
-            this._db.batch(ops, (err, value) => {
+            operations.forEach((operation) => { operation.key = this._encodeKey(opeation.key); });
+
+            this._db.batch(operations, (err, value) => {
                 if(!err){
                     resolve();
                 }
@@ -122,8 +126,7 @@ class Partition {
 
     del(key, options){
         return new Promise((resolve, reject) => {
-            const realKey = `${this._prefix}/${key}`;
-            this._db.del(realKey, (err, value) => {
+            this._db.del(this._encodeKey(key), (err, value) => {
                 if(!err){
                     resolve();
                 }
@@ -136,10 +139,9 @@ class Partition {
 
     delRange(options){
         return new Promise((resolve, reject) => {
-            options.start = `${this._prefix}/${options.start}\x00`;
-            options.end = `${this._prefix}/${options.end}\xff`;
-
-            this._db.delRange(range, function(err){
+            options.start = this._encodeKey(options.start); + '\x00';
+            options.end = this._encodeKey(options.end) + '\xFF';
+            this._db.delRange(options, function(err){
                 if(!err){
                     resolve();
                 }

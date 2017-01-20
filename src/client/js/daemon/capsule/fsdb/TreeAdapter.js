@@ -4,7 +4,7 @@ const assert = require('assert');
 const debug = require('debug')('Capsule.FSDB.TreeAdapter');
 
 const xxhash = require('xxhashjs');
-const Path = require('./TreePath.js');
+const TreePath = require('./TreePath.js');
 
 function makeNode(path, value){
     return {
@@ -63,22 +63,14 @@ class TreeAdapter {
         return this._partition.getBy('p', parentHash).then(entries => entries.map(getNodeData));
     }
 
-    getDescendants(path){
-
-    }
-
     getParent(path){
         this.get(TreePath.getParentPath(path));
-    }
-
-    moveSubTree(prefix, newPrefix){
-        return this._partition.moveRange(prefix, newPrefix);
     }
 
     delSubTree(path){
         const options = {
             start: path,
-            end: path
+            end: `${path}\xFF`
         };
         return this._partition.delRange(options);
     }

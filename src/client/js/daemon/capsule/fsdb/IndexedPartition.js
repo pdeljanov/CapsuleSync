@@ -8,17 +8,9 @@ const xxhash = require('xxhashjs');
 const bytewise = require('bytewise');
 const keyPath = require('key-path-helpers');
 const through2 = require('through2');
+const endStream = require('end-stream');
 
 const Partition = require('./Partition.js');
-
-function encodeKey(prefix, key){
-    const encodedKey = bytewise.encode(key).toString('hex');
-    return `${prefix}@${encodedKey}`;
-}
-
-function decodeKey(encodedKey){
-    return bytewise.decode(new Buffer(encodedKey.split('@')[1], 'hex'));
-}
 
 function hash(value){
     const XXHASH_SEED = 0xFEED1075;
@@ -45,6 +37,17 @@ class IndexedPartition extends Partition {
     rebuild(){
 
     }
+
+
+    _encodeIndexKey(key){
+        const encodedKey = bytewise.encode(key).toString('hex');
+        return `${this._prefix}@${encodedKey}`;
+    }
+
+    _decodeIndexKey(encodedKey){
+        return bytewise.decode(new Buffer(encodedKey.split('@')[1], 'hex'));
+    }
+
 
     _indexExists(indexName){
         const idx = this._indicies.findIndex(function(index){
@@ -89,8 +92,8 @@ class IndexedPartition extends Partition {
             if(this._removeByName(indexKey)) {
 
                 const range = {
-                    start: encodeKey(this._prefix, [indexKey, null]),
-                    end: encodeKey(this._prefix, [indexKey, undefined])
+                    start: this._encodeIndexKey([indexKey, null]),
+                    end: this._encodeIndexKey([indexKey, undefined])
                 };
 
                 this._db.deleteRange(range, function(err){
@@ -105,7 +108,49 @@ class IndexedPartition extends Partition {
 
     }
 
-    _expandBatch(batch, cb){
+
+    _inflateWithIndexOperations(operation, previousValue){
+
+        // The hash of the original key is used as a unique identifier for indicies.
+        const keyHash = hash(operation.key);
+
+        // The first item in the new operations array is the original operation.
+        var operations = [ operation ];
+
+        // For each index in this partition...
+        this._indicies.forEach((index) => {
+
+            // Remove the previously indexed value from from the index.
+            if(previousValue){
+                const previousReducedValue = index.reduceFunc(previousValue)
+
+                if(previousReducedValue !== undefined && previousReducedValue !== null){
+                    const previousEncodedIndexKey = this._encodeIndexKey([ index.name, previousReducedValue, keyHash ]);
+                    operations.push({ type: 'del', key: previousEncodedIndexKey });
+                }
+            }
+
+            // If this is a put operation, create new index values.
+            if(operation.type === 'put'){
+
+                // Extract the indexable value from the new object.
+                const reducedValue = index.reduceFunc(operation.value);
+
+                // If the indexable value could be extracted from the object, add it to the index.
+                if(reducedValue !== undefined && reducedValue !== null){
+                    const encodedKey = this._encodeIndexKey([ index.name, reducedValue, keyHash ]);
+                    operations.push({ type: 'put', key: encodedKey, value: operation.key });
+                }
+
+            }
+
+        }); // forEach Index
+
+        return operations;
+    }
+
+
+    _inflateBatch(batch, cb){
 
         return new Promise((resolve, reject) => {
             async.mapLimit(batch, 8, getPreviousValue.bind(this), (err, batches) => {
@@ -118,51 +163,14 @@ class IndexedPartition extends Partition {
             });
         });
 
-        function expandIndicies(prefix, indicies, operation, previousValue){
-
-            const keyHash = hash(operation.key);
-
-            var operations = [ operation ];
-
-            // For each index in this partition...
-            indicies.forEach(function(index){
-
-                // Remove the previously indexed value from from the index.
-                if(previousValue){
-                    const previousReducedValue = index.reduceFunc(previousValue)
-
-                    if(previousReducedValue !== undefined && previousReducedValue !== null){
-                        const previousEncodedIndexKey = encodeKey(prefix, [ index.name, previousReducedValue, keyHash ]);
-                        operations.push({ type: 'del', key: previousEncodedIndexKey });
-                    }
-                }
-
-                // If this is a put operation, create new index values.
-                if(operation.type === 'put'){
-
-                    // Extract the indexable value from the new object.
-                    const reducedValue = index.reduceFunc(operation.value);
-
-                    // If the indexable value could be extracted from the object, add it to the index.
-                    if(reducedValue !== undefined && reducedValue !== null){
-                        const encodedKey = encodeKey(prefix, [ index.name, reducedValue, keyHash ]);
-                        operations.push({ type: 'put', key: encodedKey, value: operation.key });
-                    }
-
-                }
-
-            }); // forEach Index
-
-            return operations;
-        }
-
         function getPreviousValue(operation, cb){
-            operation.key = `${this._prefix}/${operation.key}`;
+            operation.key = this._encodeKey(operation.key);
+
             this._db.get(operation.key, (err, previousValue) => {
                 const notFound = err && err.notFound;
 
                 if(!err || notFound){
-                    cb(null, expandIndicies(this._prefix, this._indicies, operation, notFound ? null : previousValue));
+                    cb(null, this._inflateWithIndexOperations(operation, notFound ? null : previousValue));
                 }
                 else {
                     cb(err);
@@ -174,8 +182,8 @@ class IndexedPartition extends Partition {
 
     _applyBatch(batch, options){
         return new Promise((resolve, reject) => {
-            this._expandBatch(batch).then((expandedBatch) => {
-                this._db.batch(expandedBatch, function(err){
+            this._inflateBatch(batch).then((inflatedBatch) => {
+                this._db.batch(inflatedBatch, (err) => {
                     if(err){
                         reject(err);
                     }
@@ -201,7 +209,26 @@ class IndexedPartition extends Partition {
     }
 
     delRange(options){
-        
+        return new Promise((resolve, reject) => {
+
+            options.start = this._encodeKey(options.start);
+            options.end = this._encodeKey(options.end);
+
+            // Create a stream that will read all key-value pairs between the start and end of the
+            // desired range.
+            this._db.createReadStream(options).pipe(endStream((data, next) => {
+                // Create a delete operation for each key.
+                const operation = { type: 'del', key: data.key };
+
+                // Inflate the operation into a batch with the required index operations.
+                const operations = this._inflateWithIndexOperations(operations, data.value);
+
+                // Submit batch operations to the database.
+                this._db.batch(operations, next);
+            }))
+            .on('finish', resolve);
+
+        });
     }
 
     createIndexStream(indexName, options){
@@ -210,11 +237,11 @@ class IndexedPartition extends Partition {
         options.start = options.start || [ null ];
         options.end = options.end || [ undefined ];
 
-        options.start = encodeKey(this._prefix, [ indexName ].concat(options.start));
-        options.end = encodeKey(this._prefix, [ indexName ].concat(options.end));
+        options.start = this._encodeIndexKey([ indexName ].concat(options.start));
+        options.end = this._encodeIndexKey([ indexName ].concat(options.end));
 
-        return this._db.createReadStream(options).pipe(through2.obj(function(data, enc, cb){
-            cb(null, { indexKey: decodeKey(data.key)[1], dataKey: data.value });
+        return this._db.createReadStream(options).pipe(through2.obj((data, enc, cb) => {
+            cb(null, { indexKey: this._decodeIndexKey(data.key)[1], dataKey: data.value });
         }));
     }
 

@@ -1,4 +1,4 @@
-module.exports = 
+module.exports =
 class Blob {
     constructor(cursor){
         this.sha1 = cursor.hash_sha1;
@@ -10,5 +10,17 @@ class Blob {
         this.gid = cursor.gid;
         this.inode = cursor.ino;
         this.mode = cursor.mode;
+    }
+
+    static deserialize(serialized){
+
+    }
+
+    serialize(){
+        return this._data;
+    }
+
+    static fromStat(path, stat){
+        
     }
 }

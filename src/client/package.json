@@ -26,6 +26,7 @@
   },
   "dependencies": {
     "clone": "^2.0.0",
+    "end-stream": "^0.1.0",
     "key-path-helpers": "^0.4.0",
     "level-delete-range": "^0.1.0",
     "leveldown": "^1.5.2",

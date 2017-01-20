@@ -54,6 +54,20 @@ class Capsule {
 
     }
 
+    addSource(source){
+        
+    }
+
+    removeSource(source){
+
+    }
+
+
+    get filters(){
+
+    }
+
+
     get subscribers(){
 
     }
@@ -61,30 +75,10 @@ class Capsule {
     subscribe(){
 
     }
+
     unsubscribe(){
 
     }
 
-    get filters(){
-
-    }
-
-    get database(){
-
-    }
-}
-
-//
-// <userid>:<deviceid>:<capsuleid>
-
-class Device {
-
-    constructor(){
-
-    }
-
-    get capsules() {
-
-    }
 
 }

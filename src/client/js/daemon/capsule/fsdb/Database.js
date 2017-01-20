@@ -50,10 +50,10 @@ class Database {
                     if(!err){
 
                         // Install delRange function.
-                        if(!this._db.delRange){
-                            this._db.delRange = levelupDeleteRange.bind(null, db);
+                        if(!db.delRange){
+                            db.delRange = levelupDeleteRange.bind(null, db);
                         }
-                        
+
                         resolve(db);
                     }
                     else {
