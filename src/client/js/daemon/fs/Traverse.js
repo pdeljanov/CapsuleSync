@@ -12,27 +12,27 @@ const FunctionQueue = require('../util/FunctionQueue.js');
 module.exports =
 class Traverse extends EventEmitter {
 
-    constructor(path, options = {}){
+    constructor(traversePath, options = {}) {
         super();
 
-        assert(typeof path, 'string', "Path must be a string.");
+        assert(typeof traversePath, 'string', 'TraversePath must be a string.');
         assert(typeof options, 'object', 'Options must be an object.');
 
         this._options = {
-            'followLinks': (options.followLinks || false ),
-            'maxDepth': (options.maxDepth || 0),
-            //'retryAttempts': (options.retryAttempts || 1),
-            'numJobs': (options.maxPending || 32),
-            'progressInterval': (options.progressInterval || 0)
+            followLinks:      (options.followLinks || false),
+            maxDepth:         (options.maxDepth || 0),
+            // retryAttempts:  (options.retryAttempts || 1),
+            numJobs:          (options.maxPending || 32),
+            progressInterval: (options.progressInterval || 0),
         };
 
-        this._path = path;
+        this._traversePath = path;
         this._queue = new FunctionQueue(this._options.numJobs);
 
         this._resetStats();
     }
 
-    _resetStats(){
+    _resetStats() {
         // Traversal statistics.
         this._numPaths = 0;
         this._numFiles = 0;
@@ -54,22 +54,22 @@ class Traverse extends EventEmitter {
 
     stats() {
         return {
-            'running': (this._startTime !== null) && (this._endTime === null),
-            'finished': (this._startTime !== null) && (this._endTime !== null),
-            'files': this._numFiles,
-            'directories': this._numDirectories,
-            'softLinks': this._numSoftLinks,
-            'hardLinks': this._numHardLinks,
-            'ignored': this._numIgnored,
-            'errors': this._errors,
-            'totalSize': this._numBytes,
-            'startDateTime': this._startDate,
-            'endDateTime': this._endDate,
-            'duration': (this._endTime || performance.now()) - this._startTime
+            running:       (this._startTime !== null) && (this._endTime === null),
+            finished:      (this._startTime !== null) && (this._endTime !== null),
+            files:         this._numFiles,
+            directories:   this._numDirectories,
+            softLinks:     this._numSoftLinks,
+            hardLinks:     this._numHardLinks,
+            ignored:       this._numIgnored,
+            errors:        this._errors,
+            totalSize:     this._numBytes,
+            startDateTime: this._startDate,
+            endDateTime:   this._endDate,
+            duration:      (this._endTime || performance.now()) - this._startTime
         };
     }
 
-    traverse(){
+    traverse() {
         const root = path.normalize(this._path);
         var self = this;
 
@@ -85,8 +85,7 @@ class Traverse extends EventEmitter {
 
         // Return a promise for when the traversal is complete.
         return new Promise((resolve, reject) => {
-
-            if(this._options.progressInterval){
+            if (this._options.progressInterval) {
                 this._progressInterval = setInterval(() => { this.emit('progress', this.stats()); }, this._options.progressInterval);
             }
 
@@ -100,10 +99,12 @@ class Traverse extends EventEmitter {
             });
         });
 
-        function getContents(root, depth, done){
+        function getContents(root, depth, done) {
             fs.readdir(root, {}, (err, children) => {
-                if(!err){
-                    children.forEach((child) => { self._queue.enqueue(getStat, path.join(root, child), depth); });
+                if (!err){
+                    children.forEach((child) => {
+                        self._queue.enqueue(getStat, path.join(root, child), depth);
+                    });
                 }
                 else {
                     debug(`Failed enumerate path ${path} with error: ${err.code}.`);
@@ -111,11 +112,11 @@ class Traverse extends EventEmitter {
                 }
                 done();
             });
-        };
+        }
 
-        function getStat(path, depth, done){
+        function getStat(path, depth, done) {
             fs.lstat(path, (err, stat) => {
-                if(!err){
+                if (!err) {
                     self._queue.enqueue(applyFilter, path, stat, depth);
                 }
                 else {
@@ -124,28 +125,28 @@ class Traverse extends EventEmitter {
                 }
                 done();
             });
-        };
+        }
 
-        function applyFilter(path, stat, depth, done){
+        function applyFilter(path, stat, depth, done) {
             publish(path, stat, depth, done);
-        };
+        }
 
-        function publish(path, stat, depth, done){
-            if(stat.isFile()) {
+        function publish(path, stat, depth, done) {
+            if (stat.isFile()) {
                 self._numFiles++;
                 self._numBytes += stat.size;
 
                 self.emit('file', path, stat);
             }
-            else if(stat.isDirectory()){
+            else if (stat.isDirectory()) {
                 self._queue.enqueue(getContents, path, depth + 1);
                 self._numDirectories++;
                 self.emit('directory', path, stat);
             }
-            else if(stat.isSymbolicLink()){
+            else if (stat.isSymbolicLink()) {
                 self._numSoftLinks++;
 
-                if(self._options.followLinks){
+                if (self._options.followLinks) {
                     self._queue.enqueue(followLink, path, depth);
                 }
 
@@ -156,17 +157,16 @@ class Traverse extends EventEmitter {
                 self._numIgnored++;
             }
             done();
-        };
+        }
 
-        function followLink(linkPath, depth, done){
+        function followLink(linkPath, depth, done) {
             fs.readlink(linkPath, (err, linkedPath) => {
-                if(!err){
-
+                if (!err) {
                     // Do not recurse down a link if it resolves to a path that is
                     // a child of the root path.
-                    var resolvedPath = path.resolve(path.dirname(linkPath), linkedPath);
+                    const resolvedPath = path.resolve(path.dirname(linkPath), linkedPath);
 
-                    if (!resolvedPath.startsWith(root)){
+                    if (!resolvedPath.startsWith(root)) {
                         self._queue.enqueue(getStat, resolvedPath, depth);
                     }
                     else {
@@ -175,16 +175,15 @@ class Traverse extends EventEmitter {
                     }
                 }
                 else {
-                    debug(`Cannot follow link at path ${resolvedPath} due to error: ${err.code}.`);
+                    debug(`Cannot follow link at path ${linkPath} due to error: ${err.code}.`);
                     self._errors++;
                 }
                 done();
             });
         }
-
     }
 
-    pause(){
+    pause() {
         return this._queue.pause();
     }
 
@@ -192,10 +191,10 @@ class Traverse extends EventEmitter {
         return this._queue.resume();
     }
 
-    cancel(){
+    cancel() {
         return this._queue.cancel();
     }
 
-}
+};
 
-// Traverse("/home/philip").on("path", (path, stat) => {}).on("file", (path, stat) => {})
+// Traverse('/home/philip').on("path", (path, stat) => {}).on("file", (path, stat) => {})

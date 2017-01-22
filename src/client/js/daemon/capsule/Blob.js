@@ -1,26 +1,88 @@
+const PathTools = require('../fs/PathTools.js');
+
 module.exports =
 class Blob {
-    constructor(cursor){
-        this.sha1 = cursor.hash_sha1;
-        //this.mediaType = new MediaType(cursor.media_type_pri, cursor.media_type_sec, cursor.is_variant);
-        this.byteLength = cursor.byte_length;
-        this.creationTime = cursor.ctime;
-        this.modificationTime = cursor.mtime;
-        this.uid = cursor.uid;
-        this.gid = cursor.gid;
-        this.inode = cursor.ino;
-        this.mode = cursor.mode;
+
+    constructor(mediaType, byteLength, creationTime, modificationTime, inode, uid, gid, mode, sha1) {
+        this._data = {
+            sha1:             sha1 || null,
+            mediaType:        mediaType,
+            byteLength:       byteLength,
+            creationTime:     creationTime,
+            modificationTime: modificationTime,
+            uid:              uid,
+            gid:              gid,
+            inode:            inode,
+            mode:             mode,
+        };
     }
 
-    static deserialize(serialized){
-
+    get sha1() {
+        return this._data.sha1;
     }
 
-    serialize(){
+    get mediaType() {
+        return this._data.mediaType;
+    }
+
+    get byteLength() {
+        return this._data.byteLength;
+    }
+
+    get creationTime() {
+        return this._data.creationTime;
+    }
+
+    get modificationTime() {
+        return this._data.modificationTime;
+    }
+
+    get uid() {
+        return this._data.uid;
+    }
+
+    get gid() {
+        return this._data.gid;
+    }
+
+    get inode() {
+        return this._data.inode;
+    }
+
+    get mode() {
+        return this._data.mode;
+    }
+
+    static deserialize(serialized) {
+        const deserialized = new Blob(
+            serialized.mediaType,
+            serialized.byteLength,
+            serialized.creationTime,
+            serialized.modificationTime,
+            serialized.inode,
+            serialized.uid,
+            serialized.gid,
+            serialized.mode,
+            serialized.sha1);
+
+        return deserialized;
+    }
+
+    serialize() {
         return this._data;
     }
 
-    static fromStat(path, stat){
-        
+    static fromStat(path, stat) {
+        const mediaType = PathTools.extractMediaType(path);
+
+        return new Blob(mediaType,
+            stat.size,
+            stat.birthtime,
+            stat.mtime,
+            stat.ino,
+            stat.uid,
+            stat.gid,
+            stat.mode);
     }
-}
+
+};
