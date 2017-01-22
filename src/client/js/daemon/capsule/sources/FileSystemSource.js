@@ -1,4 +1,5 @@
-'use strict';
+const debug = require('debug')('Capsule.Sources.FileSystemSource');
+const fs = require('original-fs');
 
 const EventEmitter = require('events');
 const Traverse = require('../../fs/Traverse.js');
@@ -6,21 +7,28 @@ const Watch = require('../../fs/Watch.js');
 const File = require('../File.js');
 const Directory = require('../Directory.js');
 
-const fs = require('original-fs');
-
 class Source extends EventEmitter {
 
     constructor(id) {
         super();
         this._id = id;
+        this.lastScan = null;
     }
 
     get id() {
         return this._id;
     }
 
-    serialize(type, options) {
-        return { type: type, data: { id: this._id, derived: options } };
+    serialize(type, derivedData) {
+        const serialized = {
+            type: type,
+            data: {
+                id:       this._id,
+                lastScan: this.lastScan,
+                derived:  derivedData,
+            },
+        };
+        return serialized;
     }
 }
 
@@ -89,18 +97,3 @@ class FileSystemSource extends Source {
 FileSystemSource.TYPE_IDENTIFIER = 'fs-1';
 
 module.exports = FileSystemSource;
-
-// function useSource(){
-//
-//     let eventId = db.config.get()
-//
-//     source.load().then(traverse).then(resolve).catch(reject);
-//
-//     function traverse(){
-//         source.traverse((object) => {
-//             t.put(path, object);
-//         });
-//     }
-//
-//
-// }

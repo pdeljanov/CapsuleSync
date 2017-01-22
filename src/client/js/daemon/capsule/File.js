@@ -15,12 +15,12 @@ class File {
         };
     }
 
-    get path() {
-        return this._data.path;
-    }
-
     get id() {
         return this._data.id;
+    }
+
+    get path() {
+        return this._data.path;
     }
 
     get displayName() {

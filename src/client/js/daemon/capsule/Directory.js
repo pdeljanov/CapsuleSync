@@ -1,10 +1,6 @@
-'use strict';
-
-const Blob = require('./Blob.js');
 const IdGenerator = require('../util/IdGenerator.js');
 const PathTools = require('../fs/PathTools.js');
 
-module.exports =
 class Directory {
 
     constructor(id, path, displayName, dirName) {
@@ -16,4 +12,45 @@ class Directory {
         };
     }
 
+    get id() {
+        return this._data.id;
+    }
+
+    get path() {
+        return this._data.path;
+    }
+
+    get displayName() {
+        return this._data.displayName;
+    }
+
+    get dirName() {
+        return this._data.dirName;
+    }
+
+    static deserialize(serialization) {
+        const deserialized = new Directory(
+            serialization.id,
+            serialization.path,
+            serialization.displayName,
+            serialization.dirName);
+
+        return deserialized;
+    }
+
+    serialize() {
+        return this._data;
+    }
+
+    static fromStat(path, stat){
+        const id = IdGenerator(Directory.ID_LENGTH);
+        const dirName = PathTools.extractFileName(path);
+        const displayName = dirName;
+        return new Directory(id, path, displayName, dirName);
+    }
+
 }
+
+Directory.ID_LENGTH = 12;
+
+module.exports = Directory;

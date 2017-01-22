@@ -2,28 +2,24 @@
 
 const assert = require('assert');
 const debug = require('debug')('Config');
-
-const electron = require('electron')
 const clone = require('clone');
 const fs = require('fs');
-const path = require('path');
-const keyPath = require('key-path-helpers');
 
+const KeyPath = require('key-path-helpers');
 const DeepExtend = require('deep-extend');
-const EventEmitter = require('events')
+const EventEmitter = require('events');
 
-const app = electron.app || electron.remote.app;
-const kUserDataPath = app.getPath('userData');
+const AppPaths = require('./util/AppPaths.js');
 
 module.exports =
 class Config extends EventEmitter {
 
-    constructor(name, debounceTimeMs = 100){
+    constructor(name, debounceTimeMs = 100) {
         super();
 
-        assert.strictEqual(typeof name, 'string', "Name must be a string.");
+        assert.strictEqual(typeof name, 'string', 'Name must be a string.');
         assert.strictEqual(typeof debounceTimeMs, 'number', 'DebounceTimeMs must be an integer.');
-        assert(debounceTimeMs >= 0, 'DebounceTimeMs must be a positive number or 0.')
+        assert(debounceTimeMs >= 0, 'DebounceTimeMs must be a positive number or 0.');
 
         this._settings = null;
         this._defaults = {};
@@ -31,81 +27,73 @@ class Config extends EventEmitter {
         this._debounceTimeout = null;
         this._debounceTime = debounceTimeMs;
 
-        this._path = path.join(kUserDataPath, 'CapsuleSync', name);
+        this._path = AppPaths.getPathAtLocation(AppPaths.CONFIG_ROOT, name);
     }
 
-    _flushSettings(settings){
+    _flushSettings(settings) {
+        const tempPath = `${this._path}-tmp`;
+        const finalPath = this._path;
 
-      const tempPath = `${this._path}-tmp`;
-      const finalPath = this._path;
+        debug('Flushing settings to file.');
 
-      debug('Flushing settings to file.');
+        return new Promise((resolve, reject) => {
+            // stringify settings object.
+            const settingsJson = JSON.stringify(settings, null, 2);
 
-      return new Promise((resolve, reject) => {
-
-        // stringify settings object.
-        const settingsJson = JSON.stringify(settings, null, 2);
-
-        // Write to temporary settings file.
-        fs.writeFile(tempPath, settingsJson, (err) => {
-          if(!err){
-
-            // Overwrite actual settings file with temporary file.
-            fs.rename(tempPath, finalPath, (err) => {
-              if(!err){
-                debug('Settings flushed successfully.');
-                resolve();
-              }
-              else {
-                debug('Could not commit settings to file.');
-                reject();
-              }
-            }); // fs.rename
-
-          }
-          else {
-            debug('Could not write settings to temporary file.');
-            fs.unlink(tempPath, () => {
-              reject();
-            });
-          }
-        }); // fs.writeFile
-
-      });
-    }
-
-    _writeSettings(settings, options){
-      // Clear any existing commit timeout.
-      clearTimeout(this._debounceTimeout);
-
-      // If debounced, instantly resolve the promise, and set a timeout to
-      // commit the settings.
-      if(options.debounce){
-
-        this._debounceTimeout = setTimeout(this._debounceTime, () => {
-          this._flushSettings(settings);
+            // Write to temporary settings file.
+            fs.writeFile(tempPath, settingsJson, (writeErr) => {
+                if (!writeErr) {
+                    // Overwrite actual settings file with temporary file.
+                    fs.rename(tempPath, finalPath, (renameErr) => {
+                        if (!renameErr) {
+                            debug('Settings flushed successfully.');
+                            resolve();
+                        }
+                        else {
+                            debug('Could not commit settings to file.');
+                            reject();
+                        }
+                    }); // fs.rename
+                }
+                else {
+                    debug('Could not write settings to temporary file.');
+                    fs.unlink(tempPath, () => {
+                        reject();
+                    });
+                }
+            }); // fs.writeFile
         });
-
-        return Promise.resolve();
-      }
-      // If not debounced, return the write promise.
-      else {
-        return this._flushSettings(settings);
-      }
     }
 
-    _readSettings(path){
+    _writeSettings(settings, options) {
+        // Clear any existing commit timeout.
+        clearTimeout(this._debounceTimeout);
+
+        // If debounced, instantly resolve the promise, and set a timeout to
+        // commit the settings.
+        if (options.debounce) {
+            this._debounceTimeout = setTimeout(this._debounceTime, () => {
+                this._flushSettings(settings);
+            });
+
+            return Promise.resolve();
+        }
+
+        // If not debounced, return the write promise.
+        return this._flushSettings(settings);
+    }
+
+    _readSettings(path) {
         debug(`Reading settings from ${path}...`);
 
         return new Promise((resolve, reject) => {
-
             fs.readFile(path, (err, data) => {
-                if(!err){
+                if (!err) {
                     this._settings = JSON.parse(data);
                     debug('Read settings file successfully.');
                     resolve();
                 }
-                else if(err.code == 'ENOENT'){
+                else if (err.code === 'ENOENT') {
                     debug('Settings file does not exist. Using defaults.');
 
                     const settings = clone(this._defaults);
@@ -120,9 +108,9 @@ class Config extends EventEmitter {
         });
     }
 
-    _ensureSettings(){
+    _ensureSettings() {
         return new Promise((resolve, reject) => {
-            if(this._settings){
+            if (this._settings) {
                 resolve(this._settings);
             }
             else {
@@ -133,67 +121,60 @@ class Config extends EventEmitter {
         });
     }
 
-    defaults(defaults){
+    defaults(defaults) {
         assert.strictEqual(typeof defaults, 'object', 'Defaults must be an object.');
         this._defaults = clone(defaults);
     }
 
-    extendDefaults(defaults, options = {}){
-      assert.strictEqual(typeof defaults, 'object', 'Defaults must be an object.');
-      assert.strictEqual(typeof options, 'object', 'Options must be an object.');
+    extendDefaults(defaults, options = {}) {
+        assert.strictEqual(typeof defaults, 'object', 'Defaults must be an object.');
+        assert.strictEqual(typeof options, 'object', 'Options must be an object.');
 
-      return new Promise((resolve, reject) => {
-        this._ensureSettings().then((settings) => {
-          DeepExtend(settings, defaults);
-          this._writeSettings(settings, options).then(resolve, reject);
+        return new Promise((resolve, reject) => {
+            this._ensureSettings().then((settings) => {
+                DeepExtend(settings, defaults);
+                this._writeSettings(settings, options).then(resolve, reject);
+            });
         });
-      });
     }
 
-    has(key){
-      asset.strictEqual(typeof key, 'string', 'Key must be a string.')
+    has(key) {
+        assert.strictEqual(typeof key, 'string', 'Key must be a string.');
 
-      debug(`Checking if "${key}" exists.`);
+        debug(`Checking if "${key}" exists.`);
 
-      return new Promise((resolve, reject) => {
-        this._ensureSettings().then((settings) => {
-          resolve(keyPath.hasKeyPath(settings, key));
-        }, reject);
-      });
+        return new Promise((resolve, reject) => {
+            this._ensureSettings().then((settings) => {
+                resolve(KeyPath.hasKeyPath(settings, key));
+            }, reject);
+        });
     }
 
-    get(key){
-      assert.strictEqual(typeof key, 'string', 'Key must be a string.');
+    get(key) {
+        assert.strictEqual(typeof key, 'string', 'Key must be a string.');
 
-      debug(`Getting "${key}".`)
+        debug(`Getting "${key}".`);
 
-      return new Promise((resolve, reject) => {
-        this._ensureSettings().then((settings) => {
-
-          const value = keyPath.getValueAtKeyPath(settings, key);
-          resolve(value);
-
-        }, reject);
-      });
+        return new Promise((resolve, reject) => {
+            this._ensureSettings().then((settings) => {
+                const value = KeyPath.getValueAtKeyPath(settings, key);
+                resolve(value);
+            }, reject);
+        });
     }
 
-    set(key, value = {}, options = {}){
-      assert.strictEqual(typeof key, 'string', 'Key path must be a string.');
-      assert.strictEqual(typeof options, 'object', 'Options must be an object.');
+    set(key, value = {}, options = {}) {
+        assert.strictEqual(typeof key, 'string', 'Key path must be a string.');
+        assert.strictEqual(typeof options, 'object', 'Options must be an object.');
 
-      debug(`Setting "${key}".`);
+        debug(`Setting "${key}".`);
 
-      return new Promise((resolve, reject) => {
-        this._ensureSettings().then((settings) => {
-          keyPath.setValueAtKeyPath(settings, key, value);
-          this._writeSettings(settings, options).then(resolve, reject);
-        }, reject);
-
-      });
+        return new Promise((resolve, reject) => {
+            this._ensureSettings().then((settings) => {
+                KeyPath.setValueAtKeyPath(settings, key, value);
+                this._writeSettings(settings, options).then(resolve, reject);
+            }, reject);
+        });
     }
 
-    observe(key, cb){
-
-    }
-
-}
+};

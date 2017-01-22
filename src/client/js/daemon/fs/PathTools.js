@@ -3,11 +3,15 @@ const mime = require('mime-types');
 
 module.exports =
 class PathTools {
-    static extractFileName(path){
-        return path.basename(path);
+    static extractFileName(givenPath) {
+        return path.basename(givenPath);
     }
 
-    static extractMediaType(path){
-        mime.contentType(path.extname(path));
+    static extractMediaType(givenPath) {
+        let ext = path.extname(givenPath);
+        if (ext && ext[0] === '.') {
+            ext = ext.substr(1);
+        }
+        return mime.contentType(ext);
     }
 };

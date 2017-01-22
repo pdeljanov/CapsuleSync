@@ -30,6 +30,7 @@
   "dependencies": {
     "clone": "^2.0.0",
     "debug": "^2.6.0",
+    "deep-extend": "^0.4.1",
     "end-stream": "^0.1.0",
     "key-path-helpers": "^0.4.0",
     "level-delete-range": "^0.1.0",

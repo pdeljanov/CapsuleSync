@@ -12,10 +12,10 @@ const FunctionQueue = require('../util/FunctionQueue.js');
 module.exports =
 class Traverse extends EventEmitter {
 
-    constructor(traversePath, options = {}) {
+    constructor(rootPath, options = {}) {
         super();
 
-        assert(typeof traversePath, 'string', 'TraversePath must be a string.');
+        assert(typeof rootPath, 'string', 'RootPath must be a string.');
         assert(typeof options, 'object', 'Options must be an object.');
 
         this._options = {
@@ -26,7 +26,7 @@ class Traverse extends EventEmitter {
             progressInterval: (options.progressInterval || 0),
         };
 
-        this._traversePath = path;
+        this._rootPath = rootPath;
         this._queue = new FunctionQueue(this._options.numJobs);
 
         this._resetStats();
@@ -70,7 +70,7 @@ class Traverse extends EventEmitter {
     }
 
     traverse() {
-        const root = path.normalize(this._path);
+        const root = path.normalize(this._rootPath);
         var self = this;
 
         // Reset stats to zero values.
@@ -196,5 +196,3 @@ class Traverse extends EventEmitter {
     }
 
 };
-
-// Traverse('/home/philip').on("path", (path, stat) => {}).on("file", (path, stat) => {})

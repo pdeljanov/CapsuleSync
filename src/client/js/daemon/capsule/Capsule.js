@@ -3,24 +3,24 @@
 const debug = require('debug')('Capsule.Capsule');
 
 const electron = require('electron')
-const path = require('path');
 const EventEmitter = require('events');
-
-const app = electron.app || electron.remote.app;
 
 const Database = require('./fsdb/Database.js');
 const SourceFactory = require('./sources/SourceFactory.js');
 const IdGenerator = require('../util/IdGenerator.js');
+const Dispatcher = require('./Dispatcher.js');
+const AppPaths = require('../util/AppPaths.js');
 
 class Capsule extends EventEmitter {
 
     constructor(identifier) {
         super();
-        const filename = `${identifier}.db`;
-        const filepath = path.join(app.getPath('userData'), 'CapsuleSync', 'capsules', filename);
-        this._db = new Database(filepath);
-        this._sources = [];
-        debug(`Loaded Capsule database at: ${filepath}.`);
+        const fileName = `${identifier}.db`;
+        const filePath = AppPaths.getPathAtLocation(AppPaths.CAPSULE_ROOT, fileName);
+
+        this._db = new Database(filePath);
+
+        debug(`Loaded Capsule database at: ${filePath}.`);
     }
 
     open(createInfo) {
@@ -30,7 +30,7 @@ class Capsule extends EventEmitter {
                 .then(() => checkDatabase(this._db))
                 .then(() => loadSources(this._db))
                 .then((sources) => {
-                    this._sources = sources;
+                    this._dispatcher = new Dispatcher(this._db, sources);
                     return Promise.resolve();
                 })
                 .then(() => {
@@ -96,12 +96,12 @@ class Capsule extends EventEmitter {
     }
 
     get sources() {
-        return this._sources;
+        return this._dispatcher.sources;
     }
 
     _saveSources() {
         return new Promise((resolve, reject) => {
-            const sources = this._sources.map(source => source.serialize());
+            const sources = this._dispatcher.sources.map(source => source.serialize());
             this._db.config('capsule.core.sources').set(sources)
                 .then(resolve)
                 .catch(err => reject());
@@ -109,12 +109,12 @@ class Capsule extends EventEmitter {
     }
 
     addSource(addedSource) {
-        this._sources.push(addedSource);
+        this._dispatcher.addSource(addedSource);
         return this._saveSources();
     }
 
     removeSource(removedSource) {
-        this._sources = this._sources.filter(source => source.id === removedSource.id);
+        this._dispatcher.removeSource(removedSource);
         return this._saveSources();
     }
 
