@@ -96,28 +96,32 @@ class FileSystemSource extends Source {
     traverse(add) {
 
         return new Promise((resolve, reject) => {
-            const walker = new Traverse(this._root);
+            const walker = new Traverse(this._root, { progressInterval: 500 });
 
             walker.on('file', (path, stat) => {
                 const relativePath = PathTools.stripRoot(path, this._root);
-                add(File.fromStat(relativePath, stat));
+                add(File.makeFromStat(relativePath, stat));
             });
 
             walker.on('directory', (path, stat) => {
                 const relativePath = PathTools.stripRoot(path, this._root);
-                add(Directory.fromStat(relativePath, stat));
+                add(Directory.makeFromStat(relativePath, stat));
             });
 
             walker.on('link', (path, stat) => {
                 const relativePath = PathTools.stripRoot(path, this._root);
-                add(File.fromStat(relativePath, stat));
+                add(File.makeFromStat(relativePath, stat));
             });
 
             walker.on('progress', (p) => {
                 debug(`[${this._id}] Scaning... Files: ${p.files}, Directories: ${p.directories}, Size: ${p.totalSize}, Time: ${p.duration}`);
             });
 
-            walker.traverse().then(resolve).catch(reject);
+            walker.traverse().then(() => {
+                const s = walker.stats();
+                debug(`[${this._id}] Scaning complete. Files: ${s.files}, Directories: ${s.directories}, Size: ${s.totalSize}, Time: ${s.duration}`);
+                resolve();
+            }).catch(reject);
         });
     }
 

@@ -3,13 +3,14 @@ const PathTools = require('../fs/PathTools.js');
 
 class Directory {
 
-    constructor(id, path, displayName, dirName) {
+    constructor(path) {
         this._data = {
-            id:          id,
-            path:        path,
-            displayName: displayName,
-            dirName:     dirName,
+            t:   'd',
+            id:  0,
+            dn:  '',
+            din: '',
         };
+        this._path = path;
     }
 
     get id() {
@@ -17,36 +18,40 @@ class Directory {
     }
 
     get path() {
-        return this._data.path;
+        return this._path;
     }
 
     get displayName() {
-        return this._data.displayName;
+        if (this._data.dn) {
+            return this._data.dn;
+        }
+        return this._data.din;
     }
 
     get dirName() {
-        return this._data.dirName;
-    }
-
-    static deserialize(serialization) {
-        const deserialized = new Directory(
-            serialization.id,
-            serialization.path,
-            serialization.displayName,
-            serialization.dirName);
-
-        return deserialized;
+        return this._data.din;
     }
 
     serialize() {
         return this._data;
     }
 
-    static fromStat(path, stat){
+    static makeFromSerialization(serialization) {
+        const deserialized = new Directory('');
+        deserialized._data.id = serialization.id;
+        deserialized._data.dn = serialization.dn;
+        deserialized._data.din = serialization.din;
+        return deserialized;
+    }
+
+    static makeFromStat(path, stat){
         const id = IdGenerator(Directory.ID_LENGTH);
         const dirName = PathTools.extractFileName(path);
-        const displayName = dirName;
-        return new Directory(id, path, displayName, dirName);
+
+        const dir = new Directory(path);
+        dir._data.id = id;
+        dir._data.din = dirName;
+        return dir;
     }
 
 }

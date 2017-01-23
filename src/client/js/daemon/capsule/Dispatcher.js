@@ -80,7 +80,7 @@ class Dispatcher {
 
     static _initialScan(partition, source) {
         function commitFunc(object) {
-            partition.put(object.path, object);
+            partition.put(object.path, object.serialize());
         }
         return new Promise((resolve, reject) => {
             source.traverse(commitFunc).then(resolve).catch(reject);

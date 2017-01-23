@@ -4,15 +4,17 @@ const PathTools = require('../fs/PathTools.js');
 
 class File {
 
-    constructor(id, path, displayName, fileName, blob) {
+    constructor(path, blob) {
         this._data = {
-            id: id,
-            p:  path,
-            dn: displayName,
-            fn: fileName,
-            b:  blob,
-            a:  blob != null,
+            t:  'f',
+            id: 0,
+            dn: '',
+            fn: '',
+            b:  blob ? blob.serialize() : null,
+            a:  false,
         };
+        this._path = path;
+        this._blob = blob || null;
     }
 
     get id() {
@@ -20,11 +22,14 @@ class File {
     }
 
     get path() {
-        return this._data.p;
+        return this._path;
     }
 
     get displayName() {
-        return this._data.dn;
+        if (this._data.dn) {
+            return this._data.dn;
+        }
+        return this._data.fn;
     }
 
     get fileName() {
@@ -32,34 +37,35 @@ class File {
     }
 
     get blob() {
-        return this._data.b;
+        return this._blob;
     }
 
     get available() {
         return this._data.a;
     }
 
-    static deserialize(serialization) {
-        const deserialized = new File(
-            serialization.id,
-            serialization.p,
-            serialization.dn,
-            serialization.fn,
-            serialization.b ? Blob.deserialize(serialization.b) : null);
-
-        return deserialized;
-    }
-
     serialize() {
         return this._data;
     }
 
-    static fromStat(path, stat) {
+    static makeFromSerialization(serialization) {
+        const blob = serialization.b ? Blob.deserialize(serialization.b) : null;
+        const deserialized = new File('', blob);
+        deserialized._data.id = serialization.id;
+        deserialized._data.dn = serialization.dn;
+        deserialized._data.fn = serialization.fn;
+        return deserialized;
+    }
+
+    static makeFromStat(path, stat) {
         const id = IdGenerator(File.ID_LENGTH);
         const fileName = PathTools.extractFileName(path);
-        const displayName = fileName;
         const blob = Blob.fromStat(path, stat);
-        return new File(id, path, displayName, fileName, blob);
+
+        const file = new File(path, blob);
+        file._data.id = id;
+        file._data.fn = fileName;
+        return file;
     }
 }
 
