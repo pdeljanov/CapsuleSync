@@ -6,12 +6,12 @@ class File {
 
     constructor(id, path, displayName, fileName, blob) {
         this._data = {
-            id:          id,
-            path:        path,
-            displayName: displayName,
-            fileName:    fileName,
-            blob:        blob,
-            available:   blob != null,
+            id: id,
+            p:  path,
+            dn: displayName,
+            fn: fileName,
+            b:  blob,
+            a:  blob != null,
         };
     }
 
@@ -20,32 +20,32 @@ class File {
     }
 
     get path() {
-        return this._data.path;
+        return this._data.p;
     }
 
     get displayName() {
-        return this._data.displayName;
+        return this._data.dn;
     }
 
     get fileName() {
-        return this._data.fileName;
+        return this._data.fn;
     }
 
     get blob() {
-        return this._data.blob;
+        return this._data.b;
     }
 
     get available() {
-        return this._data.available;
+        return this._data.a;
     }
 
     static deserialize(serialization) {
         const deserialized = new File(
             serialization.id,
-            serialization.path,
-            serialization.displayName,
-            serialization.fileName,
-            serialization.blob ? Blob.deserialize(serialization.blob) : null);
+            serialization.p,
+            serialization.dn,
+            serialization.fn,
+            serialization.b ? Blob.deserialize(serialization.b) : null);
 
         return deserialized;
     }

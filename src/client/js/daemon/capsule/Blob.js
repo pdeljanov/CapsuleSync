@@ -5,15 +5,15 @@ class Blob {
 
     constructor(mediaType, byteLength, creationTime, modificationTime, inode, uid, gid, mode, sha1) {
         this._data = {
-            sha1:             sha1 || null,
-            mediaType:        mediaType,
-            byteLength:       byteLength,
-            creationTime:     creationTime,
-            modificationTime: modificationTime,
-            uid:              uid,
-            gid:              gid,
-            inode:            inode,
-            mode:             mode,
+            sha1: sha1 || null,
+            typ:  mediaType,
+            bl:   byteLength,
+            ct:   creationTime,
+            mt:   modificationTime,
+            uid:  uid,
+            gid:  gid,
+            ino:  inode,
+            mod:  mode,
         };
     }
 
@@ -22,19 +22,19 @@ class Blob {
     }
 
     get mediaType() {
-        return this._data.mediaType;
+        return this._data.typ;
     }
 
     get byteLength() {
-        return this._data.byteLength;
+        return this._data.bl;
     }
 
     get creationTime() {
-        return this._data.creationTime;
+        return this._data.ct;
     }
 
     get modificationTime() {
-        return this._data.modificationTime;
+        return this._data.mt;
     }
 
     get uid() {
@@ -46,23 +46,23 @@ class Blob {
     }
 
     get inode() {
-        return this._data.inode;
+        return this._data.ino;
     }
 
     get mode() {
-        return this._data.mode;
+        return this._data.mod;
     }
 
     static deserialize(serialized) {
         const deserialized = new Blob(
-            serialized.mediaType,
-            serialized.byteLength,
-            serialized.creationTime,
-            serialized.modificationTime,
-            serialized.inode,
+            serialized.typ,
+            serialized.bl,
+            serialized.ct,
+            serialized.mt,
+            serialized.ino,
             serialized.uid,
             serialized.gid,
-            serialized.mode,
+            serialized.mod,
             serialized.sha1);
 
         return deserialized;

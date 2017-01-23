@@ -27,7 +27,7 @@ class Config extends EventEmitter {
         this._debounceTimeout = null;
         this._debounceTime = debounceTimeMs;
 
-        this._path = AppPaths.getPathAtLocation(AppPaths.CONFIG_ROOT, name);
+        this._path = AppPaths.getPathAtLocation(AppPaths.Locations.CONFIG_ROOT, name);
     }
 
     _flushSettings(settings) {

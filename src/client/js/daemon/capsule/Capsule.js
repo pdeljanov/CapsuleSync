@@ -6,21 +6,28 @@ const electron = require('electron')
 const EventEmitter = require('events');
 
 const Database = require('./fsdb/Database.js');
+const TreeAdapter = require('./fsdb/TreeAdapter.js');
 const SourceFactory = require('./sources/SourceFactory.js');
 const IdGenerator = require('../util/IdGenerator.js');
 const Dispatcher = require('./Dispatcher.js');
 const AppPaths = require('../util/AppPaths.js');
+
+function pad(n, width, z) {
+    z = z || '0';
+    n = n + '';
+    return n.length >= width ? n : new Array(width - n.length + 1).join(z) + n;
+}
 
 class Capsule extends EventEmitter {
 
     constructor(identifier) {
         super();
         const fileName = `${identifier}.db`;
-        const filePath = AppPaths.getPathAtLocation(AppPaths.CAPSULE_ROOT, fileName);
+        const filePath = AppPaths.getPathAtLocation(AppPaths.Locations.CAPSULE_ROOT, fileName);
 
         this._db = new Database(filePath);
 
-        debug(`Loaded Capsule database at: ${filePath}.`);
+        debug(`Loading Capsule database at: ${filePath}.`);
     }
 
     open(createInfo) {
@@ -30,7 +37,7 @@ class Capsule extends EventEmitter {
                 .then(() => checkDatabase(this._db))
                 .then(() => loadSources(this._db))
                 .then((sources) => {
-                    this._dispatcher = new Dispatcher(this._db, sources);
+                    this._dispatcher = new Dispatcher(sources);
                     return Promise.resolve();
                 })
                 .then(() => {
@@ -109,13 +116,20 @@ class Capsule extends EventEmitter {
     }
 
     addSource(addedSource) {
-        this._dispatcher.addSource(addedSource);
-        return this._saveSources();
+        const prefix = pad(addedSource.id, 2);
+
+        return this._db.getIndexedPartition(prefix)
+            .then(partition => this._dispatcher.addSource(new TreeAdapter(partition), addedSource))
+            .then(() => this._saveSources());
     }
 
     removeSource(removedSource) {
-        this._dispatcher.removeSource(removedSource);
-        return this._saveSources();
+        return this._dispatcher.removeSource(removedSource)
+            .then(() => this._saveSources());
+    }
+
+    browser() {
+
     }
 
 /*

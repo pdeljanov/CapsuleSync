@@ -14,4 +14,8 @@ class PathTools {
         }
         return mime.contentType(ext);
     }
+
+    static stripRoot(givenPath, root) {
+        return givenPath.replace(root, '');
+    }
 };
