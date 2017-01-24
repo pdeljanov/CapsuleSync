@@ -2,8 +2,9 @@ const debug = require('debug')('Capsule.Dispatcher');
 
 class Dispatcher {
 
-    constructor(sources) {
+    constructor(sources, clock) {
         this.sources = sources || [];
+        this._clock = clock;
         this._queuedScans = [];
         this._activeScan = null;
     }
@@ -50,8 +51,11 @@ class Dispatcher {
 
             // Run scanner on new thread.
             process.nextTick(() => {
+                const time = this._clock.vector;
+                this._clock.advance();
+
                 // Perform the scan.
-                this._activeScan.scanner().then(() => {
+                this._activeScan.scanner(time).then(() => {
                     // Once complete, reset the active scan and crank the queue.
                     this._activeScan = null;
                     this._crankQueue();
@@ -65,6 +69,7 @@ class Dispatcher {
             source:    source,
             partition: partition,
             scanner:   Dispatcher._initialScan.bind(null, partition, source),
+            postOps:   [],
         });
         this._crankQueue();
     }
@@ -74,12 +79,31 @@ class Dispatcher {
             source:    source,
             partition: partition,
             scanner:   Dispatcher._deltaScan.bind(null, partition, source),
+            postOps:   [],
         });
         this._crankQueue();
     }
 
-    static _initialScan(partition, source) {
+    _dispatchChangeNotification(partition, source, data) {
+        if (this._activeScan && this._activeScan.source === source) {
+            this._activeScan.postOps.append(data);
+        }
+        else {
+            this._processChangeNotification(partition, source, data);
+        }
+    }
+
+    _processChangeNotification(partition, source, data) {
+        const time = this._clock.vector;
+        this._clock.advance();
+
+        data.modificationVector = time;
+        partition.put(data.path, data.serialize());
+    }
+
+    static _initialScan(partition, source, time) {
         function commitFunc(object) {
+            object.modificationVector = time;
             partition.put(object.path, object.serialize());
         }
         return new Promise((resolve, reject) => {
@@ -87,8 +111,8 @@ class Dispatcher {
         });
     }
 
-    static _deltaScan(partition, source) {
-        return Promise.resolved();
+    static _deltaScan(partition, source, time) {
+
     }
 
 }

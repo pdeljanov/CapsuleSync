@@ -9,6 +9,8 @@ class Directory {
             id:  0,
             dn:  '',
             din: '',
+            mv:  { },
+            sv:  { },
         };
         this._path = path;
     }
@@ -41,10 +43,12 @@ class Directory {
         deserialized._data.id = serialization.id;
         deserialized._data.dn = serialization.dn;
         deserialized._data.din = serialization.din;
+        deserialized._data.sv = serialization.sv;
+        deserialized._data.mv = serialization.mv;
         return deserialized;
     }
 
-    static makeFromStat(path, stat){
+    static makeFromStat(path, stat) {
         const id = IdGenerator(Directory.ID_LENGTH);
         const dirName = PathTools.extractFileName(path);
 

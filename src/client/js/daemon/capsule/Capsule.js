@@ -10,6 +10,7 @@ const TreeAdapter = require('./fsdb/TreeAdapter.js');
 const SourceFactory = require('./sources/SourceFactory.js');
 const IdGenerator = require('../util/IdGenerator.js');
 const Dispatcher = require('./Dispatcher.js');
+const VectorClock = require('./VectorClock.js');
 const AppPaths = require('../util/AppPaths.js');
 
 function pad(n, width, z) {
@@ -36,8 +37,9 @@ class Capsule extends EventEmitter {
             this._db.open()
                 .then(() => checkDatabase(this._db))
                 .then(() => loadSources(this._db))
-                .then((sources) => {
-                    this._dispatcher = new Dispatcher(sources);
+                .then(sources => loadDispatcher(this._db, sources, 0))
+                .then((dispatcher) => {
+                    this._dispatcher = dispatcher;
                     return Promise.resolve();
                 })
                 .then(() => {
@@ -57,8 +59,10 @@ class Capsule extends EventEmitter {
             return db.config('capsule.core.id').set(IdGenerator(Capsule.ID_LENGTH))
                 .then(() => db.config('capsule.core.version').set(Capsule.DATABASE_VERSION))
                 .then(() => db.config('capsule.core.name').set(createInfo.capsuleName))
+                .then(() => db.config('capsule.core.desc').set(createInfo.capsuleDescription))
                 .then(() => db.config('capsule.core.filters').set(null))
                 .then(() => db.config('capsule.core.sources').set([]))
+                .then(() => db.config('capsule.sync.clock').set(VectorClock.zero(0).vector))
                 .then(() => db.config('capsule.user.id').set(createInfo.userId))
                 .then(() => db.config('capsule.user.name').set(createInfo.userName));
         }
@@ -87,6 +91,16 @@ class Capsule extends EventEmitter {
         function loadSources(db) {
             return db.config('capsule.core.sources').get()
                 .then(sources => sources.map(source => SourceFactory(source)));
+        }
+
+        // Load the dispatcher
+        function loadDispatcher(db, sources, deviceShortId) {
+            return db.config('capsule.sync.clock').get()
+                .then((currentVector) => {
+                    const clock = new VectorClock(deviceShortId, currentVector);
+                    clock.on('tick', vector => db.config('capsule.sync.clock').set(vector));
+                    return new Dispatcher(sources, clock);
+                });
         }
     }
 

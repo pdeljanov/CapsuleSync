@@ -10,6 +10,8 @@ class File {
             id: 0,
             dn: '',
             fn: '',
+            mv: { },
+            sv: { },
             b:  blob ? blob.serialize() : null,
             a:  false,
         };
@@ -44,6 +46,14 @@ class File {
         return this._data.a;
     }
 
+    get modificationVector() {
+        return this._data.mv;
+    }
+
+    set modificationVector(vector) {
+        this._data.mv = vector;
+    }
+
     serialize() {
         return this._data;
     }
@@ -54,6 +64,8 @@ class File {
         deserialized._data.id = serialization.id;
         deserialized._data.dn = serialization.dn;
         deserialized._data.fn = serialization.fn;
+        deserialized._data.sv = serialization.sv;
+        deserialized._data.mv = serialization.mv;
         return deserialized;
     }
 
