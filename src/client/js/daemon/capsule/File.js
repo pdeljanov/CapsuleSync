@@ -54,6 +54,14 @@ class File {
         this._data.mv = vector;
     }
 
+    get syncronizationVector() {
+        return this._data.sv;
+    }
+
+    set syncronizationVector(vector) {
+        this._data.sv = vector;
+    }
+
     serialize() {
         return this._data;
     }

@@ -31,13 +31,13 @@ class Capsule extends EventEmitter {
         debug(`Loading Capsule database at: ${filePath}.`);
     }
 
-    open(createInfo) {
+    open(createInfo, device) {
         return new Promise((resolve, reject) => {
             debug('Opening Capsule database.');
             this._db.open()
                 .then(() => checkDatabase(this._db))
                 .then(() => loadSources(this._db))
-                .then(sources => loadDispatcher(this._db, sources, 0))
+                .then(sources => loadDispatcher(this._db, sources, device.abridgedId))
                 .then((dispatcher) => {
                     this._dispatcher = dispatcher;
                     return Promise.resolve();
@@ -84,7 +84,7 @@ class Capsule extends EventEmitter {
                     }
                     return Promise.resolve();
                 })
-                .catch(err => createNewDatabase(db));
+                .catch(() => createNewDatabase(db));
         }
 
         // Load sources.
@@ -94,10 +94,10 @@ class Capsule extends EventEmitter {
         }
 
         // Load the dispatcher
-        function loadDispatcher(db, sources, deviceShortId) {
+        function loadDispatcher(db, sources, deviceAbridgedId) {
             return db.config('capsule.sync.clock').get()
                 .then((currentVector) => {
-                    const clock = new VectorClock(deviceShortId, currentVector);
+                    const clock = new VectorClock(deviceAbridgedId, currentVector);
                     clock.on('tick', vector => db.config('capsule.sync.clock').set(vector));
                     return new Dispatcher(sources, clock);
                 });
@@ -114,6 +114,14 @@ class Capsule extends EventEmitter {
 
     set name(newName) {
         return this._db.config('capsule.core.name').set(newName);
+    }
+
+    get description() {
+        return this._db.config('capsule.core.desc').get();
+    }
+
+    set description(newDescription) {
+        return this._db.config('capsule.core.desc').set(newDescription);
     }
 
     get sources() {
@@ -148,19 +156,6 @@ class Capsule extends EventEmitter {
 
 /*
     get filters() {
-
-    }
-
-
-    get subscribers() {
-
-    }
-
-    subscribe() {
-
-    }
-
-    unsubscribe() {
 
     }
 */

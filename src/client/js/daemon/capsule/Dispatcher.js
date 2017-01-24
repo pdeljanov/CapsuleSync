@@ -1,5 +1,7 @@
 const debug = require('debug')('Capsule.Dispatcher');
 
+const ChangeLog = require('./ChangeLog.js');
+
 class Dispatcher {
 
     constructor(sources, clock) {
@@ -21,12 +23,23 @@ class Dispatcher {
         // Load the source.
         return source.load()
             .catch((err) => {
-
+                // If there is an error loading the source, remove it and re-throw the error.
+                this.removeSource(source);
+                return Promise.reject(err);
             });
     }
 
-    removeSource(partition, removedSource) {
-        this.sources = this.sources.filter(source => source.id === removedSource.id);
+    removeSource(removedSource) {
+        this.sources = this.sources.filter((source) => {
+            if (source.id === removedSource.id) {
+                // TODO: Only remove the event listeners bound in addSource.
+                source.removeListener('initialScan');
+                source.removeListener('deltaScan');
+                source.removeListener('change');
+                return true;
+            }
+            return false;
+        });
     }
 
     dispatch(eventType, partition, source, data) {
@@ -69,7 +82,7 @@ class Dispatcher {
             source:    source,
             partition: partition,
             scanner:   Dispatcher._initialScan.bind(null, partition, source),
-            postOps:   [],
+            changeLog: new ChangeLog(Dispatcher.CHANGELOG_MEMORY_LENGTH),
         });
         this._crankQueue();
     }
@@ -79,14 +92,14 @@ class Dispatcher {
             source:    source,
             partition: partition,
             scanner:   Dispatcher._deltaScan.bind(null, partition, source),
-            postOps:   [],
+            changeLog: new ChangeLog(Dispatcher.CHANGELOG_MEMORY_LENGTH),
         });
         this._crankQueue();
     }
 
     _dispatchChangeNotification(partition, source, data) {
         if (this._activeScan && this._activeScan.source === source) {
-            this._activeScan.postOps.append(data);
+            this._activeScan.changeLog.append(data);
         }
         else {
             this._processChangeNotification(partition, source, data);
@@ -102,9 +115,9 @@ class Dispatcher {
     }
 
     static _initialScan(partition, source, time) {
-        function commitFunc(object) {
-            object.modificationVector = time;
-            partition.put(object.path, object.serialize());
+        function commitFunc(data) {
+            data.modificationVector = time;
+            partition.put(data.path, data.serialize());
         }
         return new Promise((resolve, reject) => {
             source.traverse(commitFunc).then(resolve).catch(reject);
@@ -116,6 +129,8 @@ class Dispatcher {
     }
 
 }
+
+Dispatcher.CHANGELOG_MEMORY_LENGTH = 128;
 
 Dispatcher.WAIT_BEFORE_SCAN = 5 * 1000;
 
