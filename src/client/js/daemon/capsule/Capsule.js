@@ -62,7 +62,7 @@ class Capsule extends EventEmitter {
                 .then(() => db.config('capsule.core.desc').set(createInfo.capsuleDescription))
                 .then(() => db.config('capsule.core.filters').set(null))
                 .then(() => db.config('capsule.core.sources').set([]))
-                .then(() => db.config('capsule.sync.clock').set(VectorClock.zero(0).vector))
+                .then(() => db.config('capsule.sync.clock').set(VectorClock.zero(device.abridgedId).vector))
                 .then(() => db.config('capsule.user.id').set(createInfo.userId))
                 .then(() => db.config('capsule.user.name').set(createInfo.userName));
         }

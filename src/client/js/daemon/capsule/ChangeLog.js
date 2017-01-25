@@ -9,8 +9,8 @@ class ChangeLog {
         debug(`Appending ${change} to change log.`);
     }
 
-    forEach() {
-
+    drain(func) {
+        
     }
 }
 
