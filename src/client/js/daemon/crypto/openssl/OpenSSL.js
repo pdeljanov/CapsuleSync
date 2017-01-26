@@ -1,3 +1,14 @@
+// For security, do not allow the OpenSSL temporary directory to be changed via environment
+// variable.
+if (process.env.PEMJS_TMPDIR) {
+    delete process.env.PEMJS_TMPDIR;
+}
+
+// For security, do not allow the OpenSSL binary path to be changed via environment variable.
+if (process.env.OPENSSL_BIN) {
+    delete process.env.OPENSSL_BIN;
+}
+
 const pem = require('pem');
 
 function wrap(func) {

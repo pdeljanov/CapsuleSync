@@ -1,36 +1,57 @@
+const debug = require('debug')('Main');
+
 const Config = require('./js/daemon/Config.js');
-const Traverse = require('./js/daemon/fs/Traverse.js');
-const Filters = require('./js/daemon/capsule/FilterSet.js');
+const Device = require('./js/daemon/Device.js');
+const Capsule = require('./js/daemon/capsule/Capsule.js');
+const IdGenerator = require('./js/daemon/util/IdGenerator.js');
 
-function setup(){
+const VERSION = '17.01.25.0';
+const USER_ID_LENGTH = 64;
 
-    var config = new Config("App.Settings");
+function setup() {
+    const config = new Config('App.Settings');
+
+    const deviceName = 'Shingeki-No-Desktop PC';
+    const userId = IdGenerator(USER_ID_LENGTH);
+    const userName = 'Test User';
+
     config.defaults({
-        user: { name: "" },
-        device: { id: "", prefix: "", name: "" },
-        capsules: {  },
-        devices: { }
+        user:     { id: userId, name: userName },
+        capsules: { },
+        devices:  [],
+        setupRun: false,
     });
 
-    //var traverser = new Traverse('/home/philip', { 'followLinks': true, 'progressInterval': 200 });
-    //traverser.on('progress', (stats) => { console.log(`Time: ${stats.duration}, Files: ${stats.files}, Directories: ${stats.directories}`); });
-    //traverser.on('file', (path, stat) => { console.log(`${path} size=${stat.size}`); });
-    //traverser.on('directory', (path) => { console.log(`${path}`); });
-    //window.capsule.traverse = traverser;
+    debug('Welcome to Capsule Sync!');
+    debug(`Version ${VERSION}`);
+    debug(`Started at ${Date()}`);
 
-    // let et = new Filters.FilterSet(
-    //         new Filters.And(
-    //             new Filters.Or(new Filters.SizeFilter('>=', 1024*1024), new Filters.NotEqual(new Filters.TypeFilter())),
-    //             new Filters.Or(new Filters.FileNameFilter(), new Filters.CreationTimeFilter())
-    //         )
-    //     );
-    // let serialized = JSON.stringify(et.serialize(), null, 2);
-    // console.log(serialized);
-    // console.log(Filters.FilterSet.deserialize(JSON.parse(serialized)));
-
-    window.capsule = {};
-    window.capsule.config = config;
-
+    config.get('setupRun')
+        .then((setupRun) => {
+            if (!setupRun) {
+                debug('Running first time setup.');
+                return Device.makeNew()
+                    .then(device => config.set('devices', [device.serialize()]))
+                    .then(() => config.set('setupRun', true))
+                    .then(() => config.get('devices'));
+            }
+            return config.get('devices');
+        })
+        .then((devices) => {
+            const capsule = new Capsule('test');
+            const createInfo = {
+                capsuleName: deviceName,
+                userName:    userName,
+                userId:      userId,
+            };
+            return capsule.open(createInfo, Device.makeFromSerialized(devices[0]))
+                .then(() => Promise.resolve(capsule));
+        })
+        .then((capsule) => {
+            window.capsule = {};
+            window.capsule.config = config;
+            window.capsule.test = capsule;
+        });
 }
 
 setup();

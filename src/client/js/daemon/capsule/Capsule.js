@@ -37,7 +37,7 @@ class Capsule extends EventEmitter {
             this._db.open()
                 .then(() => checkDatabase(this._db))
                 .then(() => loadSources(this._db))
-                .then(sources => loadDispatcher(this._db, sources, device.abridgedId))
+                .then(sources => loadDispatcher(this._db, sources, 0))
                 .then((dispatcher) => {
                     this._dispatcher = dispatcher;
                     return Promise.resolve();
@@ -62,9 +62,16 @@ class Capsule extends EventEmitter {
                 .then(() => db.config('capsule.core.desc').set(createInfo.capsuleDescription))
                 .then(() => db.config('capsule.core.filters').set(null))
                 .then(() => db.config('capsule.core.sources').set([]))
-                .then(() => db.config('capsule.sync.clock').set(VectorClock.zero(device.abridgedId).vector))
                 .then(() => db.config('capsule.user.id').set(createInfo.userId))
-                .then(() => db.config('capsule.user.name').set(createInfo.userName));
+                .then(() => db.config('capsule.user.name').set(createInfo.userName))
+                .then(() => db.config('capsule.sync.clock').set(VectorClock.zero(0).vector))
+                .then(() => db.config('capsule.sync.subscriber_count').set(1))
+                .then(() => {
+                    // The device the Capsule was created on is ALWAYS assigned a 0.
+                    const subscribers = {};
+                    subscribers[device.id] = 0;
+                    return db.config('capusle.sync.subscribers').set(subscribers);
+                });
         }
 
         // Upgrade an existing database to the latest version.
@@ -94,10 +101,10 @@ class Capsule extends EventEmitter {
         }
 
         // Load the dispatcher
-        function loadDispatcher(db, sources, deviceAbridgedId) {
+        function loadDispatcher(db, sources, deviceNumericId) {
             return db.config('capsule.sync.clock').get()
                 .then((currentVector) => {
-                    const clock = new VectorClock(deviceAbridgedId, currentVector);
+                    const clock = new VectorClock(deviceNumericId, currentVector);
                     clock.on('tick', vector => db.config('capsule.sync.clock').set(vector));
                     return new Dispatcher(sources, clock);
                 });
@@ -154,15 +161,49 @@ class Capsule extends EventEmitter {
 
     }
 
-/*
-    get filters() {
+    subscribe(device) {
+        this._db.config('capusle.sync.subscribers').get()
+            .then((existingSubs) => {
+                if (!existingSubs[device.id]) {
+                    const updatedSubs = Object.assign({}, existingSubs);
 
+                    return this._db.config.get('capsule.sync.subscriber_count')
+                        .then((nextSubId) => {
+                            updatedSubs[device.id] = nextSubId;
+                            this._db.config.set('capsule.sync.subscriber_count', nextSubId + 1);
+                        })
+                        .then(() => this._db.config.set('capsule.sync.subscribers').set(updatedSubs));
+                }
+
+                // Device is already subscribed.
+                return Promise.reject(Capsule.Errors.ALREADY_SUBSCRIBED);
+            });
     }
-*/
 
+    unsubscribe(device) {
+        this._db.config('capusle.sync.subscribers').get()
+            .then((existingSubs) => {
+                if (existingSubs[device.id]) {
+                    const updatedSubs = Object.assign({}, existingSubs);
+                    delete updatedSubs[device.id];
+                    return this._db.config.set('capsule.sync.subscribers').set(updatedSubs);
+                }
+                return Promise.resolve();
+            });
+    }
+
+    /*
+        get filters() {
+
+        }
+    */
 }
 
 Capsule.DATABASE_VERSION = 1;
 Capsule.ID_LENGTH = 64;
+
+Capsule.Errors = {
+    ALREADY_SUBSCRIBED: 'AlreadySubscribed',
+};
 
 module.exports = Capsule;
