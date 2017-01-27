@@ -7,12 +7,16 @@ class PathTools {
         return path.basename(givenPath);
     }
 
-    static extractMediaType(givenPath) {
+    static extractExtension(givenPath) {
         let ext = path.extname(givenPath);
         if (ext && ext[0] === '.') {
             ext = ext.substr(1);
         }
-        return mime.contentType(ext);
+        return ext;
+    }
+
+    static extractMediaType(givenPath) {
+        return mime.contentType(PathTools.extractExtension(givenPath));
     }
 
     static stripRoot(givenPath, root) {

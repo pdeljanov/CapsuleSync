@@ -11,6 +11,7 @@ const SourceFactory = require('./sources/SourceFactory.js');
 const IdGenerator = require('../util/IdGenerator.js');
 const Dispatcher = require('./Dispatcher.js');
 const VectorClock = require('./VectorClock.js');
+const { FilterSet } = require('./FilterSet.js');
 const AppPaths = require('../util/AppPaths.js');
 
 function pad(n, width, z) {
@@ -36,7 +37,12 @@ class Capsule extends EventEmitter {
             debug('Opening Capsule database.');
             this._db.open()
                 .then(() => checkDatabase(this._db))
-                .then(() => loadSources(this._db))
+                .then(() => loadFilters(this._db))
+                .then((filterSet) => {
+                    this._filters = filterSet;
+                    return Promise.resolve();
+                })
+                .then(() => loadSources(this._db, this._filters))
                 .then(sources => loadDispatcher(this._db, sources, 0))
                 .then((dispatcher) => {
                     this._dispatcher = dispatcher;
@@ -60,7 +66,7 @@ class Capsule extends EventEmitter {
                 .then(() => db.config('capsule.core.version').set(Capsule.DATABASE_VERSION))
                 .then(() => db.config('capsule.core.name').set(createInfo.capsuleName))
                 .then(() => db.config('capsule.core.desc').set(createInfo.capsuleDescription))
-                .then(() => db.config('capsule.core.filters').set(null))
+                .then(() => db.config('capsule.core.filters').set(FilterSet.empty().serialize()))
                 .then(() => db.config('capsule.core.sources').set([]))
                 .then(() => db.config('capsule.user.id').set(createInfo.userId))
                 .then(() => db.config('capsule.user.name').set(createInfo.userName))
@@ -94,10 +100,20 @@ class Capsule extends EventEmitter {
                 .catch(() => createNewDatabase(db));
         }
 
+        // Load filters.
+        function loadFilters(db) {
+            return db.config('capsule.core.filters').get()
+                .then(filters => FilterSet.deserialize(filters));
+        }
+
         // Load sources.
-        function loadSources(db) {
+        function loadSources(db, withFilters) {
             return db.config('capsule.core.sources').get()
-                .then(sources => sources.map(source => SourceFactory(source)));
+                .then(serializedSources => serializedSources.map((serializedSource) => {
+                    const source = SourceFactory(serializedSource);
+                    source.applyFilter(withFilters);
+                    return source;
+                }));
         }
 
         // Load the dispatcher
@@ -148,17 +164,16 @@ class Capsule extends EventEmitter {
         const prefix = pad(addedSource.id, 2);
 
         return this._db.getIndexedPartition(prefix)
-            .then(partition => this._dispatcher.addSource(new TreeAdapter(partition), addedSource))
+            .then((partition) => {
+                addedSource.applyFilter(this._filters);
+                return this._dispatcher.addSource(new TreeAdapter(partition), addedSource);
+            })
             .then(() => this._saveSources());
     }
 
     removeSource(removedSource) {
         return this._dispatcher.removeSource(removedSource)
             .then(() => this._saveSources());
-    }
-
-    browser() {
-
     }
 
     subscribe(device) {
@@ -192,11 +207,23 @@ class Capsule extends EventEmitter {
             });
     }
 
-    /*
-        get filters() {
+    get filters() {
+        return this._filters;
+    }
 
-        }
-    */
+    applyFilter(filterSet) {
+        return this._db.config('capsule.core.filters').set(filterSet.serialize())
+            .then(() => {
+                this._filters = filterSet;
+                this._dispatcher.sources.forEach(source => source.applyFilter(filterSet));
+                return Promise.resolve();
+            });
+    }
+
+    browser() {
+
+    }
+
 }
 
 Capsule.DATABASE_VERSION = 1;

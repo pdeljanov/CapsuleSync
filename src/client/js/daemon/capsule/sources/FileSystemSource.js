@@ -7,6 +7,7 @@ const Watch = require('../../fs/Watch.js');
 const File = require('../File.js');
 const Directory = require('../Directory.js');
 const PathTools = require('../../fs/PathTools.js');
+const { FilterSet } = require('../FilterSet.js');
 
 class Source extends EventEmitter {
 
@@ -42,6 +43,7 @@ class FileSystemSource extends Source {
         super(id);
 
         this._root = root;
+        this.filters = FilterSet.empty();
         this.lastScan = null;
     }
 
@@ -81,6 +83,10 @@ class FileSystemSource extends Source {
         });
     }
 
+    applyFilter(filterSet) {
+        this.filters = filterSet;
+    }
+
     unload() {
 
     }
@@ -100,7 +106,10 @@ class FileSystemSource extends Source {
 
             walker.on('file', (path, stat) => {
                 const relativePath = PathTools.stripRoot(path, this._root);
-                add(File.makeFromStat(relativePath, stat));
+                const file = File.makeFromStat(relativePath, stat);
+                if (this.filters.evaluate(file)) {
+                    add(file);
+                }
             });
 
             walker.on('directory', (path, stat) => {
