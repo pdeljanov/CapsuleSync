@@ -7,14 +7,14 @@ const ExpressionTree = require('../util/ExpressionTree.js');
 class FilterSet extends ExpressionTree.Tree {
 
     static deserialize(serialized) {
-        assert.strictEqual(typeof serialized, 'object', 'Serialized must be an object.');
-        return new FilterSet(super.deserialize(serialized, filterFactory));
-
         function filterFactory(name, args) {
             const deserializer = FilterSet.Deserializers[name];
             assert(deserializer, `No deserializer found for filter named: ${name}.`);
             return deserializer(args);
         }
+
+        assert.strictEqual(typeof serialized, 'object', 'Serialized must be an object.');
+        return new FilterSet(super.deserialize(serialized, filterFactory));
     }
 
     static empty() {
@@ -48,7 +48,7 @@ class TypeFilter extends ExpressionTree.Operand {
         return new TypeFilter(options.mediaType);
     }
 }
-FilterSet.Deserializers['type'] = TypeFilter.deserialize;
+FilterSet.Deserializers.type = TypeFilter.deserialize;
 
 class ExtensionFilter extends ExpressionTree.Operand {
 
@@ -70,7 +70,7 @@ class ExtensionFilter extends ExpressionTree.Operand {
         return new ExtensionFilter(options.ext);
     }
 }
-FilterSet.Deserializers['ext'] = ExtensionFilter.deserialize;
+FilterSet.Deserializers.ext = ExtensionFilter.deserialize;
 
 class FileNameFilter extends ExpressionTree.Operand {
 
@@ -112,7 +112,7 @@ FileNameFilter.Test = {
     Exactly:    'is',
 };
 
-FilterSet.Deserializers['name'] = FileNameFilter.deserialize;
+FilterSet.Deserializers.name = FileNameFilter.deserialize;
 
 
 class SizeFilter extends ExpressionTree.Operand {
@@ -153,38 +153,102 @@ SizeFilter.Inequality = {
     LessThanOrEqual:    '<=',
 };
 
-FilterSet.Deserializers['size'] = SizeFilter.deserialize;
+FilterSet.Deserializers.size = SizeFilter.deserialize;
 
 
 class CreationTimeFilter extends ExpressionTree.Operand {
 
-    constructor(date) {
+    constructor(date, inequality) {
         super();
+        this._date = date;
+        this._inequality = inequality;
     }
 
     evaluate(file) {
-
+        switch (this._inequality) {
+        case CreationTimeFilter.Inequality.GreaterThan:
+            return file.blob.creationTime.getTime() > this._date.getTime();
+        case CreationTimeFilter.Inequality.GreaterThanOrEqual:
+            return file.blob.creationTime.getTime() >= this._date.getTime();
+        case CreationTimeFilter.Inequality.LessThan:
+            return file.blob.creationTime.getTime() < this._date.getTime();
+        case CreationTimeFilter.Inequality.LessThanOrEqual:
+            return file.blob.creationTime.getTime() <= this._date.getTime();
+        default:
+            return false;
+        }
     }
 
     serialize() {
-        return { ctime: {} };
+        return { ctime: { date: this._date, inequality: this._inequality } };
     }
 
     static deserialize(options) {
-        return new CreationTimeFilter();
+        return new CreationTimeFilter(options.date, options.inequality);
     }
 }
-FilterSet.Deserializers['ctime'] = CreationTimeFilter.deserialize;
+
+CreationTimeFilter.Inequality = {
+    GreaterThan:        '>',
+    GreaterThanOrEqual: '>=',
+    LessThan:           '<',
+    LessThanOrEqual:    '<=',
+};
+
+FilterSet.Deserializers.ctime = CreationTimeFilter.deserialize;
+
+
+class ModificationTimeFilter extends ExpressionTree.Operand {
+
+    constructor(date, inequality) {
+        super();
+        this._date = date;
+        this._inequality = inequality;
+    }
+
+    evaluate(file) {
+        switch (this._inequality) {
+        case ModificationTimeFilter.Inequality.GreaterThan:
+            return file.blob.creationTime.getTime() > this._date.getTime();
+        case ModificationTimeFilter.Inequality.GreaterThanOrEqual:
+            return file.blob.creationTime.getTime() >= this._date.getTime();
+        case ModificationTimeFilter.Inequality.LessThan:
+            return file.blob.creationTime.getTime() < this._date.getTime();
+        case ModificationTimeFilter.Inequality.LessThanOrEqual:
+            return file.blob.creationTime.getTime() <= this._date.getTime();
+        default:
+            return false;
+        }
+    }
+
+    serialize() {
+        return { mtime: { date: this._date, inequality: this._inequality } };
+    }
+
+    static deserialize(options) {
+        return new ModificationTimeFilter(options.date, options.inequality);
+    }
+}
+
+ModificationTimeFilter.Inequality = {
+    GreaterThan:        '>',
+    GreaterThanOrEqual: '>=',
+    LessThan:           '<',
+    LessThanOrEqual:    '<=',
+};
+
+FilterSet.Deserializers.mtime = ModificationTimeFilter.deserialize;
 
 module.exports = {
-    FilterSet:          FilterSet,
-    Equal:              ExpressionTree.Equal,
-    NotEqual:           ExpressionTree.NotEqual,
-    And:                ExpressionTree.And,
-    Or:                 ExpressionTree.Or,
-    TypeFilter:         TypeFilter,
-    ExtensionFilter:    ExtensionFilter,
-    FileNameFilter:     FileNameFilter,
-    SizeFilter:         SizeFilter,
-    CreationTimeFilter: CreationTimeFilter,
+    FilterSet:              FilterSet,
+    Equal:                  ExpressionTree.Equal,
+    NotEqual:               ExpressionTree.NotEqual,
+    And:                    ExpressionTree.And,
+    Or:                     ExpressionTree.Or,
+    TypeFilter:             TypeFilter,
+    ExtensionFilter:        ExtensionFilter,
+    FileNameFilter:         FileNameFilter,
+    SizeFilter:             SizeFilter,
+    CreationTimeFilter:     CreationTimeFilter,
+    ModificationTimeFilter: ModificationTimeFilter,
 };
