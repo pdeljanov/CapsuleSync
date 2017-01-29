@@ -21,6 +21,7 @@ class BatchingTraverse extends EventEmitter {
             // retryAttempts:  (options.retryAttempts || 1),
             numJobs:          (options.numJobs || 8),
             progressInterval: (options.progressInterval || 0),
+            cycleProtection:  false,
         };
 
         this._rootPath = rootPath;
@@ -75,6 +76,8 @@ class BatchingTraverse extends EventEmitter {
         // Record start date, and high precision timestamp.
         this._startDate = Date();
         this._startTime = performance.now();
+        this._hardLinked = {};
+        this._softLinked = {};
 
         // Return a promise for when the traversal is complete.
         return new Promise((resolve, reject) => {
@@ -89,6 +92,8 @@ class BatchingTraverse extends EventEmitter {
 
                 this._endTime = performance.now();
                 this._endDate = Date();
+                this._hardLinked = {};
+                this._softLinked = {};
 
                 if (!err) {
                     resolve();
@@ -105,31 +110,57 @@ class BatchingTraverse extends EventEmitter {
     _traverse(task, taskDone) {
         const self = this;
 
-        getDirectoryStat(task.path, task.depth, taskDone);
+        return getDirectoryStat(task.path, task.depth, taskDone);
 
+        // getDirectoryStat retrieves the stat information for the directory to traverse. A stat is
+        // always used here instead of lstat because if we are following links, we must maintain
+        // a consistent path from the root and if we used the resolved link path we would lose that.
+        // If links are not being followed, then the link would never be added to the path queue
+        // because we aren't following them.
         function getDirectoryStat(dirPath, depth, done) {
-            fs.lstat(dirPath, (err, stat) => {
+            fs.stat(dirPath, (err, stat) => {
                 if (!err) {
-                    getDirectoryContents(dirPath, stat, depth, done);
+                    // Hardlink cycle protection for Windows.
+                    //
+                    // If a directory has an nlink > 1, this implies that it has been hardlinked.
+                    // Use the inode number to maintain a visit count, and when the count reaches 2,
+                    // skip the directory to prevent a cycle.
+                    //
+                    // Future revisions may wish to check the FILE_ATTRIBUTE_REPARSE_POINT attribute
+                    // on Windows specifically. Linux and OSX does not allow creation of hardLinks
+                    // that cause cycles.
+                    if (self._options.cycleProtection && stat.nlink > 1) {
+                        self._numHardLinks += 1;
+                        if (!self._hardLinked[stat.ino]) {
+                            self._hardLinked[stat.ino] = 0;
+                        }
+                        self._hardLinked[stat.ino] += 1;
+                        if (self._hardLinked[stat.ino] >= 2) {
+                            debug(`Cycle detected at ${dirPath}. Ignoring further recursion.`);
+                            self._ignored += 1;
+                            return done();
+                        }
+                    }
+
+                    self._numDirectories += 1;
+                    return getDirectoryContents(dirPath, stat, depth, done);
                 }
-                else {
-                    debug(`Failed stat path ${dirPath} with error: ${err.code}.`);
-                    self._errors += 1;
-                    done();
-                }
+
+                debug(`Failed stat path ${dirPath} with error: ${err.code}.`);
+                self._errors += 1;
+                return done();
             });
         }
 
         function getDirectoryContents(dirPath, dirStat, depth, done) {
             fs.readdir(dirPath, {}, (err, childPaths) => {
                 if (!err) {
-                    getDirectoryContentsStat(dirPath, dirStat, childPaths, depth, done);
+                    return getDirectoryContentsStat(dirPath, dirStat, childPaths, depth, done);
                 }
-                else {
-                    debug(`Failed enumerate path ${dirPath} with error: ${err.code}.`);
-                    self._errors++;
-                    done();
-                }
+
+                debug(`Failed enumerate path ${dirPath} with error: ${err.code}.`);
+                self._errors += 1;
+                return done();
             });
         }
 
@@ -142,8 +173,6 @@ class BatchingTraverse extends EventEmitter {
 
                     // Perform the stat.
                     fs.lstat(statPath, (err, stat) => {
-                        let followingLink = false;
-
                         // If there is an error while stating, ignore it.
                         if (err) {
                             debug(`Failed to stat path ${path} with error: ${err.code}.`);
@@ -158,15 +187,11 @@ class BatchingTraverse extends EventEmitter {
                         }
                         // Count # of directories, and queue a task to travese into it.
                         else if (stat.isDirectory()) {
-                            self._numDirectories += 1;
                             self._queue.push({ path: statPath, depth: depth + 1 });
                         }
                         // Count # of links, and follow the link to queue a task to traverse it.
                         else if (stat.isSymbolicLink()) {
-                            if (self._options.followLinks) {
-                                followingLink = true;
-                            }
-                            else {
+                            if (!self._options.followLinks) {
                                 self._numSoftLinks += 1;
                             }
                         }
@@ -177,96 +202,102 @@ class BatchingTraverse extends EventEmitter {
 
                         // If a link has to be resolved, it must be resolved BEFORE calling the
                         // next callback to avoid race conditions.
-                        if (followingLink) {
-                            resolveLink(statPath, (linkedPath, linkedStat) => {
-                                // If the link is not broken, push it to the contents array.
-                                if (linkedPath) {
-                                    // If the link points to a directory, push that onto the queue.
-                                    if (linkedStat.isDirectory()) {
-                                        self._queue.push({ path: linkedPath, depth: depth });
-                                        self._numDirectories += 1;
+                        if (stat.isSymbolicLink()) {
+                            // Resolve the link.
+                            return resolveLink(statPath, stat, (resolveErr, linkedPath, linkedStat) => {
+                                // Only further process the link if there was no resolution error.
+                                if (!resolveErr) {
+                                    // If following links...
+                                    if (self._options.followLinks) {
+                                        // And the link points to a directory, push the path of the
+                                        // link to the queue. It will be resolved by the directory
+                                        // fstat.
+                                        if (linkedStat.isDirectory()) {
+                                            self._queue.push({ path: statPath, depth: depth });
+                                        }
+                                        // Or if the link is a file, count the file and swap the
+                                        // stat information.
+                                        else if (linkedStat.isFile()) {
+                                            child.stat = linkedStat;
+                                            self._numFiles += 1;
+                                            self._numBytes += linkedStat.size;
+                                        }
                                     }
-                                    else if (linkedStat.isFile()) {
-                                        self._numFiles += 1;
+                                    // If not following links. Append the linkedPath to the child
+                                    // content.
+                                    else {
+                                        child.linkedPath = linkedPath;
                                     }
 
-                                    // Flourish the child content object with the link path.
-                                    child.linkedPath = linkedPath;
+                                    // TODO: Handle ELOOP errors. When not following symlinks, these
+                                    // links should be faithfully represented.
+
+                                    // Push the child content to the contents array.
                                     contents.push(child);
                                 }
                                 nextChild(null);
                             });
                         }
-                        else {
-                            contents.push(child);
-                            nextChild(null);
-                        }
+
+                        // Not following link, so just push the child content.
+                        contents.push(child);
+                        return nextChild(null);
                     });
                 },
                 (err) => {
                     if (!err) {
-                        publish(dirPath, dirStat, contents, depth, done);
+                        return publish(dirPath, dirStat, contents, depth, done);
                     }
-                    else {
-                        done();
-                    }
+                    return done();
                 });
         }
 
         function publish(dirPath, dirStat, contents, depth, done) {
             self.emit('directory', dirPath, dirStat, contents, depth);
-            done();
+            return done();
         }
 
-        function resolveLink(linkPath, cb, depth) {
-            const currentDepth = depth || 0;
-
-            // Do not recurse any further than the resursive maximum.
-            if (currentDepth > BatchingTraverse.LINK_RECURSIVE_MAXIMUM) {
-                debug('The link resursive maximum limit has been reached. Ignoring.');
-                self._numIgnored += 1;
-                return cb(null);
-            }
-
+        function resolveLink(linkPath, linkStat, cb) {
             // Resolve the link.
-            fs.readlink(linkPath, (err, linkedPath) => {
-                if (!err) {
-                    const resolvedPath = path.resolve(path.dirname(linkPath), linkedPath);
-
-                    // Check the link resolves to a path external to the root path.
-                    if (!resolvedPath.startsWith(self._rootPath)) {
-                        // Stat the resolved path to determine and pass it out.
-                        fs.lstat(resolvedPath, (statErr, stat) => {
-                            if (!statErr) {
-                                // The resolved path is another symbolic link. Follow it.
-                                if (stat.isSymbolicLink()) {
-                                    resolveLink(resolvedPath, cb, currentDepth + 1);
-                                }
-                                // The resolved path is a file or directory. We're done ehre.
-                                else {
-                                    cb(resolvedPath, stat);
-                                }
-                            }
-                            else {
-                                debug(`Cannot stat linked file: ${resolvedPath}.`);
-                                self._errors += 1;
-                                cb(null);
-                            }
-                        });
-                    }
-                    // Link resolves to a path within the root path. Ignore it to avoid cycles.
-                    else {
-                        debug(`Link at: ${linkPath} resolves to ${resolvedPath} which is a child of the root path.`);
-                        self._numIgnored += 1;
-                        cb(null);
-                    }
-                }
+            fs.readlink(linkPath, (readLinkErr, linkedPath) => {
                 // Failed to resolve the link.
-                else {
-                    debug(`Cannot follow link at path ${linkPath} due to error: ${err.code}.`);
+                if (readLinkErr) {
+                    debug(`Cannot follow link due to error: ${readLinkErr.code}`);
                     self._errors += 1;
-                    cb(null);
+                    return cb(true);
                 }
+
+                // When following links, it is possible to get into a situation whereby a link
+                // in a directory points directly or indirectly to the directory that contains it.
+                // This will NOT be caught by the following fs.stat because it will resolve to the
+                // directory until we traverse far enough to hit the symlink maximum. Therefore,
+                // cycle protection is implemeneted using a "visited" object. If a link (identified)
+                // by its inode is visited more than once, raise an error to break the cycle.
+                // Since this error can only occur when following links, only provide this cycle
+                // protection when following links.
+                if (self._options.followLinks) {
+                    if (!self._softLinked[linkStat.ino]) {
+                        self._softLinked[linkStat.ino] = 0;
+                    }
+
+                    self._softLinked[linkStat.ino] += 1;
+
+                    if (self._softLinked[linkStat.ino] >= 2) {
+                        debug(`Cycle detected at ${linkPath}. Ignoring further recursion.`);
+                        self._errors += 1;
+                        return cb(true);
+                    }
+                }
+
+                // Stat the link to get information about the file the link(s) points to.
+                return fs.stat(linkPath, (statErr, linkedStat) => {
+                    if (statErr) {
+                        debug(`Cannot stat linked file: ${linkedPath} due to error: ${statErr.code}.`);
+                        self._errors += 1;
+                        return cb(true);
+                    }
+                    return cb(null, linkedPath, linkedStat);
+                });
             });
         }
     }
