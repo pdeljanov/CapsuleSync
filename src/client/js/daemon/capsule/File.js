@@ -66,9 +66,9 @@ class File {
         return this._data;
     }
 
-    static makeFromSerialization(serialization) {
+    static makeFromSerialization(path, serialization) {
         const blob = serialization.b ? Blob.deserialize(serialization.b) : null;
-        const deserialized = new File('', blob);
+        const deserialized = new File(path, blob);
         deserialized._data.id = serialization.id;
         deserialized._data.dn = serialization.dn;
         deserialized._data.fn = serialization.fn;

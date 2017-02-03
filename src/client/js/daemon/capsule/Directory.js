@@ -7,6 +7,7 @@ class Directory {
         this._data = {
             t:   'd',
             id:  0,
+            mt:  0,
             dn:  '',
             din: '',
             mv:  { },
@@ -34,6 +35,10 @@ class Directory {
         return this._data.din;
     }
 
+    get modificationTime() {
+        return this._data.mt;
+    }
+
     get modificationVector() {
         return this._data.mv;
     }
@@ -54,13 +59,14 @@ class Directory {
         return this._data;
     }
 
-    static makeFromSerialization(serialization) {
-        const deserialized = new Directory('');
+    static makeFromSerialization(path, serialization) {
+        const deserialized = new Directory(path);
         deserialized._data.id = serialization.id;
         deserialized._data.dn = serialization.dn;
         deserialized._data.din = serialization.din;
         deserialized._data.sv = serialization.sv;
         deserialized._data.mv = serialization.mv;
+        deserialized._data.mt = new Date(serialization.mt);
         return deserialized;
     }
 
@@ -71,6 +77,7 @@ class Directory {
         const dir = new Directory(path);
         dir._data.id = id;
         dir._data.din = dirName;
+        dir._data.mt = stat.mtime;
         return dir;
     }
 

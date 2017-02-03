@@ -22,4 +22,8 @@ class PathTools {
     static stripRoot(givenPath, root) {
         return givenPath.replace(root, '');
     }
+
+    static appendRoot(root, givenPath) {
+        return path.join(root, givenPath);
+    }
 };

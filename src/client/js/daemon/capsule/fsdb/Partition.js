@@ -3,9 +3,11 @@
 const assert = require('assert');
 const debug = require('debug')('Capsule.FSDB.Partition');
 
+const through2 = require('through2');
+
 class Partition {
 
-    constructor(db, prefix, identifier){
+    constructor(db, prefix, identifier) {
         assert(identifier.indexOf('/') === -1, 'Partition identifiers may not contain a "/" character.');
 
         this._prefix = `${prefix}${identifier}`;
@@ -14,24 +16,22 @@ class Partition {
         this._db = db;
     }
 
-    _encodeKey(key){
+    _encodeKey(key) {
         return `${this._prefix}:${key}`;
     }
 
-    _decodeKey(key){
-        return key.split(':')[1];
+    _decodeKey(key) {
+        return key.substr(key.indexOf(':') + 1);
     }
 
-    _getHeader(){
-
+    _getHeader() {
         return new Promise((resolve, reject) => {
             // Get the header and footer. Ensure they match before returning the
             // header.
             this._db.get(this._header, (err, header) => {
                 this._db.get(this._footer, (err, footer) => {
-
                     // Header and footer must match to be valid.
-                    if(header && footer){
+                    if (header && footer) {
                         resolve(header);
                     }
                     else {
@@ -40,20 +40,18 @@ class Partition {
                 });
             });
         });
-
     }
 
-    _createHeader(type, metadata){
+    _createHeader(type, metadata) {
         return new Promise((resolve, reject) => {
-
             const ops = [
-                { type: 'put', key: this._header, value: { type: type, data: metadata }},
-                { type: 'put', key: this._footer, value: { }}
-            ]
+                { type: 'put', key: this._header, value: { type: type, data: metadata } },
+                { type: 'put', key: this._footer, value: { } },
+            ];
 
             // Atomically insert the header and footer to the database.
             this._db.batch(ops, (err) => {
-                if(!err){
+                if (!err) {
                     resolve();
                 }
                 else {
@@ -61,19 +59,15 @@ class Partition {
                     reject();
                 }
             });
-
         });
-
     }
 
-    prepare(){
+    prepare() {
         return new Promise((resolve, reject) => {
-
             // Attempt to get the header, if it fails, create it.
             this._getHeader()
                 .then(resolve)
                 .catch((err) => {
-
                     // Create the header.
                     this._createHeader('partition')
                         .then(resolve)
@@ -82,10 +76,10 @@ class Partition {
         });
     }
 
-    get(key, options){
+    get(key, options) {
         return new Promise((resolve, reject) => {
             this._db.get(this._encodeKey(key), (err, value) => {
-                if(!err){
+                if (!err) {
                     resolve(value);
                 }
                 else {
@@ -95,10 +89,10 @@ class Partition {
         });
     }
 
-    put(key, value, options){
+    put(key, value, options) {
         return new Promise((resolve, reject) => {
-            this._db.put(this._encodeKey(key), value, (err, value) => {
-                if(!err){
+            this._db.put(this._encodeKey(key), value, (err) => {
+                if (!err) {
                     resolve();
                 }
                 else {
@@ -108,13 +102,12 @@ class Partition {
         });
     }
 
-    batch(operations, options){
+    batch(operations, options) {
         return new Promise((resolve, reject) => {
+            operations.forEach((operation) => { operation.key = this._encodeKey(operation.key); });
 
-            operations.forEach((operation) => { operation.key = this._encodeKey(opeation.key); });
-
-            this._db.batch(operations, (err, value) => {
-                if(!err){
+            this._db.batch(operations, (err) => {
+                if (!err) {
                     resolve();
                 }
                 else {
@@ -124,10 +117,10 @@ class Partition {
         });
     }
 
-    del(key, options){
+    del(key, options) {
         return new Promise((resolve, reject) => {
-            this._db.del(this._encodeKey(key), (err, value) => {
-                if(!err){
+            this._db.del(this._encodeKey(key), (err) => {
+                if (!err) {
                     resolve();
                 }
                 else {
@@ -137,12 +130,12 @@ class Partition {
         });
     }
 
-    delRange(options){
+    delRange(options) {
         return new Promise((resolve, reject) => {
-            options.start = this._encodeKey(options.start); + '\x00';
+            options.start = this._encodeKey(options.start) + '\x00';
             options.end = this._encodeKey(options.end) + '\xFF';
-            this._db.delRange(options, function(err){
-                if(!err){
+            this._db.delRange(options, (err) => {
+                if (!err) {
                     resolve();
                 }
                 else {
@@ -152,11 +145,22 @@ class Partition {
         });
     }
 
+    createReadStream(options) {
+        options.start = this._encodeKey(options.start) + '\x00';
+        options.end = this._encodeKey(options.end) + '\xFF';
+
+        return this._db.createReadStream(options)
+            .pipe(through2.obj((data, enc, next) => {
+                data.key = this._decodeKey(data.key);
+                next(null, data);
+            }));
+    }
+
 }
 
 Partition.Errors = {
-    NO_HEADER:          'NoHeader',
-    NO_ENTRY:           'NoEntry'
+    NO_HEADER: 'NoHeader',
+    NO_ENTRY:  'NoEntry',
 };
 
 module.exports = Partition;

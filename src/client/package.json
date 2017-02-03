@@ -28,6 +28,8 @@
     "eslint-plugin-import": "^2.2.0"
   },
   "dependencies": {
+    "async": "^2.1.4",
+    "bytewise": "^1.1.0",
     "clone": "^2.0.0",
     "debug": "^2.6.0",
     "deep-extend": "^0.4.1",
@@ -40,6 +42,7 @@
     "media-type": "^0.3.0",
     "mime-types": "^2.1.13",
     "pem": "^1.9.4",
-    "through2": "^2.0.3"
+    "through2": "^2.0.3",
+    "xxhash": "^0.2.4"
   }
 }

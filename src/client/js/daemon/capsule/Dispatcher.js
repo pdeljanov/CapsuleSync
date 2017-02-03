@@ -4,8 +4,8 @@ const ChangeLog = require('./ChangeLog.js');
 
 class Dispatcher {
 
-    constructor(sources, clock) {
-        this.sources = sources || [];
+    constructor(clock) {
+        this.sources = [];
         this._clock = clock;
         this._queuedScans = [];
         this._activeScan = null;
@@ -114,23 +114,67 @@ class Dispatcher {
         partition.put(data.path, data.serialize());
     }
 
-    static _initialScan(partition, source, time) {
-        function commitFunc(data) {
-            data.modificationVector = time;
-            partition.put(data.path, data.serialize());
+    static _initialScan(tree, source, time) {
+        let batch = [];
+
+        function commit() {
+            if (batch.length > 0) {
+                const toCommit = batch;
+                batch = [];
+                return tree.putMany(toCommit);
+            }
+            return Promise.resolve();
         }
+
+        function add(data) {
+            data.modificationVector = time;
+            batch.push({ key: data.path, value: data.serialize() });
+            if (batch.length >= Dispatcher.SCAN_COMMIT_QUEUE_LENGTH) {
+                commit();
+            }
+        }
+
         return new Promise((resolve, reject) => {
-            source.traverse(commitFunc).then(resolve).catch(reject);
+            source.traverse(add, commit).then(commit).then(resolve).catch(reject);
         });
     }
 
-    static _deltaScan(partition, source, time) {
+    static _deltaScan(tree, source, time) {
+        let batch = [];
 
+        function commit() {
+            if (batch.length > 0) {
+                const toCommit = batch;
+                batch = [];
+                return tree.putMany(toCommit);
+            }
+            return Promise.resolve();
+        }
+
+        function upsert(data) {
+            data.modificationVector = time;
+            batch.push({ key: data.path, value: data.serialize() });
+            if (batch.length >= Dispatcher.SCAN_COMMIT_QUEUE_LENGTH) {
+                commit();
+            }
+        }
+
+        function remove(key) {
+            tree.delSubTree(key);
+        }
+
+        return new Promise((resolve, reject) => {
+            source.delta(tree, upsert, remove, commit)
+                .then(commit)
+                .then(resolve)
+                .catch(reject);
+        });
     }
 
 }
 
 Dispatcher.CHANGELOG_MEMORY_LENGTH = 128;
+Dispatcher.SCAN_COMMIT_QUEUE_LENGTH = 96;
 
 Dispatcher.WAIT_BEFORE_SCAN = 5 * 1000;
 

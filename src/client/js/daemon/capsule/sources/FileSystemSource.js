@@ -1,13 +1,50 @@
 const debug = require('debug')('Capsule.Sources.FileSystemSource');
 const fs = require('original-fs');
+const async = require('async');
 
 const EventEmitter = require('events');
-const Traverse = require('../../fs/Traverse.js');
+const Traverse = require('../../fs/BatchingTraverse.js');
 const Watch = require('../../fs/Watch.js');
 const File = require('../File.js');
 const Directory = require('../Directory.js');
 const PathTools = require('../../fs/PathTools.js');
 const { FilterSet } = require('../FilterSet.js');
+
+function batch(arr, n, func, done) {
+    let i = 0;
+    function doNext() {
+        if (i * n < arr.length) {
+            setImmediate(() => {
+                const s = i * n;
+                const e = Math.min((s + n), arr.length);
+                func(arr.slice(s, e), doNext);
+                i += 1;
+            });
+        }
+        else {
+            done();
+        }
+    }
+
+    if (arr.length > n) {
+        doNext();
+    }
+    else {
+        func(arr, done);
+    }
+}
+
+class FileSystemObject {
+    static deserialize(path, serialization) {
+        if (serialization.t === 'f') {
+            return File.makeFromSerialization(path, serialization);
+        }
+        else if (serialization.t === 'd') {
+            return Directory.makeFromSerialization(path, serialization);
+        }
+        return null;
+    }
+}
 
 class Source extends EventEmitter {
 
@@ -77,6 +114,10 @@ class FileSystemSource extends Source {
                             debug(`[${this._id}] Source has never been scanned before.`);
                             this.emit('initialScan');
                         }
+                        else {
+                            debug(`[${this._id}] Source was last scanned ${this.lastScan}.`);
+                            this.emit('deltaScan');
+                        }
                     });
                 }
             });
@@ -99,38 +140,103 @@ class FileSystemSource extends Source {
 
     }
 
-    traverse(add) {
-
+    traverse(add, commit) {
         return new Promise((resolve, reject) => {
-            const walker = new Traverse(this._root, { progressInterval: 500 });
+            const walker = new Traverse(this._root, { followLinks: true, progressInterval: 500 });
 
-            walker.on('file', (path, stat) => {
-                const relativePath = PathTools.stripRoot(path, this._root);
-                const file = File.makeFromStat(relativePath, stat);
-                if (this.filters.evaluate(file)) {
-                    add(file);
-                }
-            });
+            walker.directory = (dirPath, dirStat, contents, depth, next) => {
+                // Add directory.
+                add(Directory.makeFromStat(PathTools.stripRoot(dirPath, this._root), dirStat));
 
-            walker.on('directory', (path, stat) => {
-                const relativePath = PathTools.stripRoot(path, this._root);
-                add(Directory.makeFromStat(relativePath, stat));
-            });
+                // Iterate through each item in the directory in asynchronous batches.
+                batch(contents, 32, (items, cb) => {
+                    items.forEach((item) => {
+                        const relativePath = PathTools.stripRoot(item.path, this._root);
+                        const stat = item.stat;
 
-            walker.on('link', (path, stat) => {
-                const relativePath = PathTools.stripRoot(path, this._root);
-                add(File.makeFromStat(relativePath, stat));
-            });
+                        if (stat.isFile()) {
+                            const file = File.makeFromStat(relativePath, stat);
+                            if (this.filters.evaluate(file)) {
+                                add(file);
+                            }
+                        }
+                        // else if (stat.isSymbolicLink()) {
+                        //    add(File.makeFromStat(relativePath, stat));
+                        // }
+                    });
+                    cb();
+                },
+                () => {
+                    // Issue a commit before continuing on the traversal.
+                    commit().then(next);
+                });
+            };
 
             walker.on('progress', (p) => {
                 debug(`[${this._id}] Scaning... Files: ${p.files}, Directories: ${p.directories}, Size: ${p.totalSize}, Time: ${p.duration}`);
             });
 
             walker.traverse().then(() => {
+                this.lastScan = Date();
+
                 const s = walker.stats();
-                debug(`[${this._id}] Scaning complete. Files: ${s.files}, Directories: ${s.directories}, Size: ${s.totalSize}, Time: ${s.duration}`);
+                const speed = Math.floor((1000 * s.files) / s.duration);
+                debug(`[${this._id}] Scaning complete. Files: ${s.files}, Directories: ${s.directories}, Size: ${s.totalSize}, Time: ${s.duration}, Avg. Speed: ${speed} files/s`);
                 resolve();
             }).catch(reject);
+        });
+    }
+
+    delta(tree, upsert, remove, commit) {
+        return new Promise((resolve, reject) => {
+            tree.scanSubTree('', (data, next) => {
+                const path = PathTools.appendRoot(this._root, data.key);
+                const item = FileSystemObject.deserialize(path, data.value);
+                // Get the stat information for the item being scanned.
+                fs.lstat(path, (err, stat) => {
+                    if (err) {
+                        // File deletion.
+                        if (err.code === 'ENOENT') {
+                            debug(`[${this._id}] File removal at: ${path}`);
+                        }
+                        else {
+                            debug(`[${this._id}] Unknown error at: ${path}`);
+                        }
+                    }
+                    else if (!err) {
+                        if (stat.isFile()) { // && (item.type === File.TYPE)
+                            // File check.
+                            if (stat.size !== item.blob.byteLength ||
+                                stat.mtime.getTime() !== item.blob.modificationTime.getTime() ||
+                                stat.ctime.getTime() !== item.blob.creationTime.getTime() ||
+                                stat.uid !== item.blob.uid ||
+                                stat.gid !== item.blob.gid ||
+                                stat.mode !== item.blob.mode ||
+                                stat.ino !== item.blob.inode) {
+                                debug(`[${this._id}] File difference for: ${path}.`);
+                            }
+                        }
+                        else if (stat.isDirectory()) { // && (item.type === Directory.TYPE)
+                            if (stat.mtime.getTime() !== item.modificationTime.getTime()) {
+                                debug(`[${this._id}] Directory scan required at: ${path}.`);
+                            }
+                        }
+                        else if (stat.isSymbolicLink()) {
+                            // Do nothing fo now.
+                        }
+                        else {
+                            debug(`[${this._id}] Type mismatch for: ${path}.`);
+                        }
+                    }
+                    next();
+                });
+            })
+            .then(() => {
+                this.lastScan = Date();
+                debug(`[${this._id}] Delta scan complete.`);
+                resolve();
+            })
+            .catch(reject);
         });
     }
 

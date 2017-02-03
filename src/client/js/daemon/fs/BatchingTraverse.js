@@ -27,6 +27,8 @@ class BatchingTraverse extends EventEmitter {
         this._rootPath = rootPath;
         this._queue = async.queue(this._traverse.bind(this), 1);
 
+        this.directory = (dp, ds, c, d, done) => { done(); };
+
         this._resetStats();
     }
 
@@ -253,8 +255,7 @@ class BatchingTraverse extends EventEmitter {
         }
 
         function publish(dirPath, dirStat, contents, depth, done) {
-            self.emit('directory', dirPath, dirStat, contents, depth);
-            return done();
+            self.directory(dirPath, dirStat, contents, depth, done);
         }
 
         function resolveLink(linkPath, linkStat, cb) {

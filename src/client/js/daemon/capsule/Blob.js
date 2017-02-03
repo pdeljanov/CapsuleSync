@@ -57,8 +57,8 @@ class Blob {
         const deserialized = new Blob(
             serialized.typ,
             serialized.bl,
-            serialized.ct,
-            serialized.mt,
+            new Date(serialized.ct),
+            new Date(serialized.mt),
             serialized.ino,
             serialized.uid,
             serialized.gid,

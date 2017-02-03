@@ -48,11 +48,19 @@ class Database {
                         resolve(db);
                     }
                     else {
-                        reject(err)
+                        reject(err);
                     }
                 });
             });
         }
+    }
+
+    close() {
+        return new Promise((resolve) => {
+            this._db.close(() => {
+                resolve();
+            });
+        });
     }
 
     version() {

@@ -37,17 +37,18 @@ class Capsule extends EventEmitter {
             debug('Opening Capsule database.');
             this._db.open()
                 .then(() => checkDatabase(this._db))
+                .then(() => loadDispatcher(this._db, 0))
+                .then((dispatcher) => {
+                    this._dispatcher = dispatcher;
+                    return Promise.resolve();
+                })
                 .then(() => loadFilters(this._db))
                 .then((filterSet) => {
                     this._filters = filterSet;
                     return Promise.resolve();
                 })
                 .then(() => loadSources(this._db, this._filters))
-                .then(sources => loadDispatcher(this._db, sources, 0))
-                .then((dispatcher) => {
-                    this._dispatcher = dispatcher;
-                    return Promise.resolve();
-                })
+                .then(sources => Promise.all(sources.map(source => this._addSource(source))))
                 .then(() => {
                     debug('Capsule database opened!');
                     resolve();
@@ -122,9 +123,18 @@ class Capsule extends EventEmitter {
                 .then((currentVector) => {
                     const clock = new VectorClock(deviceNumericId, currentVector);
                     clock.on('tick', vector => db.config('capsule.sync.clock').set(vector));
-                    return new Dispatcher(sources, clock);
+                    return new Dispatcher(clock);
                 });
         }
+    }
+
+    close() {
+        return new Promise((resolve) => {
+            debug('Closing Capsule database.');
+            this._saveSources()
+                .then(() => this._db.close())
+                .then(resolve);
+        });
     }
 
     get id() {
@@ -160,15 +170,18 @@ class Capsule extends EventEmitter {
         });
     }
 
-    addSource(addedSource) {
+    _addSource(addedSource) {
         const prefix = pad(addedSource.id, 2);
 
         return this._db.getIndexedPartition(prefix)
             .then((partition) => {
                 addedSource.applyFilter(this._filters);
                 return this._dispatcher.addSource(new TreeAdapter(partition), addedSource);
-            })
-            .then(() => this._saveSources());
+            });
+    }
+
+    addSource(addedSource) {
+        return this._addSource(addedSource).then(() => this._saveSources());
     }
 
     removeSource(removedSource) {
