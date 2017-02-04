@@ -1,5 +1,3 @@
-'use strict';
-
 const FileSystemSource = require('./FileSystemSource.js');
 
 module.exports =

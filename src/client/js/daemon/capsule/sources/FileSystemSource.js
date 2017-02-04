@@ -1,14 +1,11 @@
 const debug = require('debug')('Capsule.Sources.FileSystemSource');
 const fs = require('original-fs');
-const async = require('async');
 
-const EventEmitter = require('events');
-const Traverse = require('../../fs/BatchingTraverse.js');
-const Watch = require('../../fs/Watch.js');
-const File = require('../File.js');
-const Directory = require('../Directory.js');
+const Source = require('./Source.js');
 const PathTools = require('../../fs/PathTools.js');
+const Traverse = require('../../fs/BatchingTraverse.js');
 const { FilterSet } = require('../FilterSet.js');
+const { FileEntry, LinkEntry, DirectoryEntry, CapsuleEntry } = require('../CapsuleEntry.js');
 
 function batch(arr, n, func, done) {
     let i = 0;
@@ -33,46 +30,6 @@ function batch(arr, n, func, done) {
         func(arr, done);
     }
 }
-
-class FileSystemObject {
-    static deserialize(path, serialization) {
-        if (serialization.t === 'f') {
-            return File.makeFromSerialization(path, serialization);
-        }
-        else if (serialization.t === 'd') {
-            return Directory.makeFromSerialization(path, serialization);
-        }
-        return null;
-    }
-}
-
-class Source extends EventEmitter {
-
-    constructor(id) {
-        super();
-        this._id = id;
-    }
-
-    get id() {
-        return this._id;
-    }
-
-    serialize(type, derivedData) {
-        const serialized = {
-            type: type,
-            data: {
-                id:      this._id,
-                derived: derivedData,
-            },
-        };
-        return serialized;
-    }
-}
-
-Source.ERRORS = {
-    ACCESS_DENIED:  'AccessDenied',
-    DOES_NOT_EXIST: 'DoesNotExist',
-};
 
 class FileSystemSource extends Source {
 
@@ -146,7 +103,7 @@ class FileSystemSource extends Source {
 
             walker.directory = (dirPath, dirStat, contents, depth, next) => {
                 // Add directory.
-                add(Directory.makeFromStat(PathTools.stripRoot(dirPath, this._root), dirStat));
+                add(DirectoryEntry.makeFromStat(PathTools.stripRoot(dirPath, this._root), dirStat));
 
                 // Iterate through each item in the directory in asynchronous batches.
                 batch(contents, 32, (items, cb) => {
@@ -155,14 +112,15 @@ class FileSystemSource extends Source {
                         const stat = item.stat;
 
                         if (stat.isFile()) {
-                            const file = File.makeFromStat(relativePath, stat);
+                            const file = FileEntry.makeFromStat(relativePath, stat);
                             if (this.filters.evaluate(file)) {
                                 add(file);
                             }
                         }
-                        // else if (stat.isSymbolicLink()) {
-                        //    add(File.makeFromStat(relativePath, stat));
-                        // }
+                        else if (stat.isSymbolicLink()) {
+                            const linkedPath = PathTools.stripRoot(item.linkedPath, this._root);
+                            add(LinkEntry.makeFromStat(relativePath, linkedPath, stat));
+                        }
                     });
                     cb();
                 },
@@ -189,46 +147,73 @@ class FileSystemSource extends Source {
 
     delta(tree, upsert, remove, commit) {
         return new Promise((resolve, reject) => {
+            let lastRemovedPath = null;
+
+            function scanDirectory(dir, done) {
+                tree.getChildren(dir.path).then(() => {
+                    done();
+                });
+            }
+
             tree.scanSubTree('', (data, next) => {
                 const path = PathTools.appendRoot(this._root, data.key);
-                const item = FileSystemObject.deserialize(path, data.value);
+                const type = CapsuleEntry.getType(data.value);
+
+                // Do not lstat if the blob does not exist.
+                if (type === CapsuleEntry.Type.FILE) {
+                }
+                // If the current path is prefixed with the last previously deleted directory path,
+                // may be safely skipped as it would be considered deleted.
+                else if (type === CapsuleEntry.Type.Directory && path.startsWith(lastRemovedPath)) {
+                    debug(`[${this._id}] Skipping: ${path} since parent: ${lastRemovedPath} was removed.`);
+                    return next();
+                }
+
                 // Get the stat information for the item being scanned.
-                fs.lstat(path, (err, stat) => {
+                return fs.lstat(path, (err, stat) => {
                     if (err) {
-                        // File deletion.
+                        // Deletion.
                         if (err.code === 'ENOENT') {
-                            debug(`[${this._id}] File removal at: ${path}`);
+                            lastRemovedPath = path;
+                            debug(`[${this._id}] Removal at: ${path}`);
                         }
                         else {
                             debug(`[${this._id}] Unknown error at: ${path}`);
                         }
                     }
                     else if (!err) {
-                        if (stat.isFile()) { // && (item.type === File.TYPE)
-                            // File check.
-                            if (stat.size !== item.blob.byteLength ||
-                                stat.mtime.getTime() !== item.blob.modificationTime.getTime() ||
-                                stat.ctime.getTime() !== item.blob.creationTime.getTime() ||
-                                stat.uid !== item.blob.uid ||
-                                stat.gid !== item.blob.gid ||
-                                stat.mode !== item.blob.mode ||
-                                stat.ino !== item.blob.inode) {
+                        // File
+                        if (stat.isFile() && type === CapsuleEntry.Type.FILE) {
+                            const file = FileEntry.makeFromSerialization(path, data.value);
+
+                            if (!file.isIdentical(stat)) {
                                 debug(`[${this._id}] File difference for: ${path}.`);
                             }
                         }
-                        else if (stat.isDirectory()) { // && (item.type === Directory.TYPE)
-                            if (stat.mtime.getTime() !== item.modificationTime.getTime()) {
+                        // Directory
+                        else if (stat.isDirectory() && type === CapsuleEntry.Type.DIRECTORY) {
+                            const dir = DirectoryEntry.makeFromSerialization(path, data.value);
+
+                            if (!dir.isIdentical(stat)) {
                                 debug(`[${this._id}] Directory scan required at: ${path}.`);
+                                return scanDirectory(dir, next);
                             }
                         }
-                        else if (stat.isSymbolicLink()) {
-                            // Do nothing fo now.
+                        // Link
+                        else if (stat.isSymbolicLink() && type === CapsuleEntry.Type.LINK) {
+                            const link = LinkEntry.makeFromSerialization(path, data.value);
+
+                            if (!link.isIdentical(stat)) {
+                                debug(`[${this._id}] Link difference for: ${path}.`);
+                            }
                         }
+                        // Type mistach
                         else {
                             debug(`[${this._id}] Type mismatch for: ${path}.`);
                         }
                     }
-                    next();
+
+                    return next();
                 });
             })
             .then(() => {

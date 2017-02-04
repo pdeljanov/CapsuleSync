@@ -3,10 +3,9 @@ const PathTools = require('../fs/PathTools.js');
 module.exports =
 class Blob {
 
-    constructor(mediaType, byteLength, creationTime, modificationTime, inode, uid, gid, mode, sha1) {
+    constructor(byteLength, creationTime, modificationTime, inode, uid, gid, mode, sha1) {
         this._data = {
             sha1: sha1 || null,
-            typ:  mediaType,
             bl:   byteLength,
             ct:   creationTime,
             mt:   modificationTime,
@@ -19,10 +18,6 @@ class Blob {
 
     get sha1() {
         return this._data.sha1;
-    }
-
-    get mediaType() {
-        return this._data.typ;
     }
 
     get byteLength() {
@@ -55,7 +50,6 @@ class Blob {
 
     static deserialize(serialized) {
         const deserialized = new Blob(
-            serialized.typ,
             serialized.bl,
             new Date(serialized.ct),
             new Date(serialized.mt),
@@ -73,9 +67,7 @@ class Blob {
     }
 
     static fromStat(path, stat) {
-        const mediaType = PathTools.extractMediaType(path);
-
-        return new Blob(mediaType,
+        return new Blob(
             stat.size,
             stat.birthtime,
             stat.mtime,

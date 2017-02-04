@@ -1,22 +1,19 @@
-const Blob = require('./Blob.js');
 const IdGenerator = require('../util/IdGenerator.js');
 const PathTools = require('../fs/PathTools.js');
 
-class File {
+class Directory {
 
-    constructor(path, blob) {
+    constructor(path) {
         this._data = {
-            t:  'f',
-            id: 0,
-            dn: '',
-            fn: '',
-            mv: { },
-            sv: { },
-            b:  blob ? blob.serialize() : null,
-            a:  false,
+            t:   'd',
+            id:  0,
+            mt:  0,
+            dn:  '',
+            din: '',
+            mv:  { },
+            sv:  { },
         };
         this._path = path;
-        this._blob = blob || null;
     }
 
     get id() {
@@ -31,19 +28,15 @@ class File {
         if (this._data.dn) {
             return this._data.dn;
         }
-        return this._data.fn;
+        return this._data.din;
     }
 
-    get fileName() {
-        return this._data.fn;
+    get dirName() {
+        return this._data.din;
     }
 
-    get blob() {
-        return this._blob;
-    }
-
-    get available() {
-        return this._data.a;
+    get modificationTime() {
+        return this._data.mt;
     }
 
     get modificationVector() {
@@ -62,33 +55,41 @@ class File {
         this._data.sv = vector;
     }
 
+    isIdentical(stat) {
+        if (stat.mtime.getTime() === this.modificationTime.getTime()) {
+            return true;
+        }
+        return false;
+    }
+
     serialize() {
         return this._data;
     }
 
     static makeFromSerialization(path, serialization) {
-        const blob = serialization.b ? Blob.deserialize(serialization.b) : null;
-        const deserialized = new File(path, blob);
+        const deserialized = new Directory(path);
         deserialized._data.id = serialization.id;
         deserialized._data.dn = serialization.dn;
-        deserialized._data.fn = serialization.fn;
+        deserialized._data.din = serialization.din;
         deserialized._data.sv = serialization.sv;
         deserialized._data.mv = serialization.mv;
+        deserialized._data.mt = new Date(serialization.mt);
         return deserialized;
     }
 
     static makeFromStat(path, stat) {
-        const id = IdGenerator(File.ID_LENGTH);
-        const fileName = PathTools.extractFileName(path);
-        const blob = Blob.fromStat(path, stat);
+        const id = IdGenerator(Directory.ID_LENGTH);
+        const dirName = PathTools.extractFileName(path);
 
-        const file = new File(path, blob);
-        file._data.id = id;
-        file._data.fn = fileName;
-        return file;
+        const dir = new Directory(path);
+        dir._data.id = id;
+        dir._data.din = dirName;
+        dir._data.mt = stat.mtime;
+        return dir;
     }
+
 }
 
-File.ID_LENGTH = 12;
+Directory.ID_LENGTH = 12;
 
-module.exports = File;
+module.exports = Directory;

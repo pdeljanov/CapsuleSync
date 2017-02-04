@@ -6,7 +6,7 @@ const debug = require('debug')('FS.Traverse');
 const fs = require('original-fs');
 const path = require('path');
 
-const EventEmitter = require('events')
+const EventEmitter = require('events');
 const FunctionQueue = require('../util/FunctionQueue.js');
 
 module.exports =
