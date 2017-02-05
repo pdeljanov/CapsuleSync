@@ -63,6 +63,14 @@ class File {
         this._data.sv = vector;
     }
 
+    modify(time) {
+        this._data.mv = time;
+    }
+
+    synchronize(time) {
+        this._data.sv = time;
+    }
+
     serialize() {
         return this._data;
     }

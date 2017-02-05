@@ -109,8 +109,7 @@ class Dispatcher {
     _processChangeNotification(partition, source, data) {
         const time = this._clock.vector;
         this._clock.advance();
-
-        data.modificationVector = time;
+        data.modify(time);
         partition.put(data.path, data.serialize());
     }
 
@@ -127,15 +126,28 @@ class Dispatcher {
         }
 
         function add(data) {
-            data.modificationVector = time;
+            data.modify(time);
             batch.push({ key: data.path, value: data.serialize() });
             if (batch.length >= Dispatcher.SCAN_COMMIT_QUEUE_LENGTH) {
                 commit();
             }
+            // debug(`\u222B-Scan [${source.id}] insert: ${data.path}`);
+        }
+
+        function progress(p) {
+            const duration = Math.ceil(p.duration);
+            if (p.finished) {
+                const speed = Math.floor((1000 * p.files) / p.duration);
+                debug(`\u222B-Scan [${source.id}] complete! Files: ${p.files}, Directories: ${p.directories}, Size: ${p.totalSize}, Time: ${duration}ms, Avg. Speed: ${speed} files/s`);
+            }
+            else {
+                debug(`\u222B-Scan [${source.id}] progress... Files: ${p.files}, Directories: ${p.directories}, Size: ${p.totalSize}, Time: ${duration}ms`);
+            }
         }
 
         return new Promise((resolve, reject) => {
-            source.traverse(add, commit).then(commit).then(resolve).catch(reject);
+            debug(`\u222B-Scan [${source.id}] complete.`);
+            source.integral(add, commit, progress).then(commit).then(resolve).catch(reject);
         });
     }
 
@@ -152,21 +164,33 @@ class Dispatcher {
         }
 
         function upsert(data) {
-            data.modificationVector = time;
-            debug(`\u0394-Scan Upsert: ${data.path}`);
+            data.modify(time);
             // batch.push({ key: data.path, value: data.serialize() });
             // if (batch.length >= Dispatcher.SCAN_COMMIT_QUEUE_LENGTH) {
             //     commit();
             // }
+            debug(`\u0394-Scan [${source.id}] upsert: ${data.path}`);
         }
 
         function remove(key) {
-            debug(`\u0394-Scan Remove: ${key}`);
             // tree.delSubTree(key);
+            debug(`\u0394-Scan [${source.id}] remove: ${key}`);
+        }
+
+        function progress(p) {
+            const duration = Math.ceil(p.duration);
+            if (p.finished) {
+                const speed = Math.floor((1000 * p.files) / p.duration);
+                debug(`\u0394-Scan [${source.id}] complete! Files: ${p.files}, Directories: ${p.directories}, Time: ${duration}ms, Avg. Speed: ${speed} files/s`);
+            }
+            else {
+                debug(`\u0394-Scan [${source.id}] progress... Files: ${p.files}, Directories: ${p.directories}, Time: ${duration}ms`);
+            }
         }
 
         return new Promise((resolve, reject) => {
-            source.delta(tree, upsert, remove, commit)
+            debug(`\u0394-Scan [${source.id}] started.`);
+            source.delta(tree, upsert, remove, commit, progress)
                 .then(commit)
                 .then(resolve)
                 .catch(reject);

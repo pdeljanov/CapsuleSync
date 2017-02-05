@@ -1,4 +1,4 @@
-const FileSystemSource = require('./FileSystemSource.js');
+const FileSystemSource = require('./fs/FileSystemSource.js');
 
 module.exports =
 function SourceFactory(source) {

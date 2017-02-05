@@ -13,6 +13,7 @@ module.exports = {
         "key-spacing": ["off"],
         "key-spacing": ["error", { "align": "value" }],
         "strict": ["error", "global"],
-        "brace-style": ["error", "stroustrup", { "allowSingleLine": true }]
+        "brace-style": ["error", "stroustrup", { "allowSingleLine": true }],
+        "max-len": ["error", 120]
     }
 };

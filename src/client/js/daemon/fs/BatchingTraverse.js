@@ -7,20 +7,19 @@ const async = require('async');
 
 class BatchingTraverse {
 
-    constructor(rootPath, options = {}) {
-        assert(typeof rootPath, 'string', 'RootPath must be a string.');
+    constructor(root, options = {}) {
+        assert(typeof root, 'string', 'RootPath must be a string.');
         assert(typeof options, 'object', 'Options must be an object.');
+
+        this.root = root;
 
         this._options = {
             followLinks:      (options.followLinks || false),
-            maxDepth:         (options.maxDepth || 0),
-            // retryAttempts:  (options.retryAttempts || 1),
             numJobs:          (options.numJobs || 8),
             progressInterval: (options.progressInterval || 0),
             cycleProtection:  false,
         };
 
-        this._rootPath = rootPath;
         this._queue = async.queue(this._traverse.bind(this), 1);
 
         this.directory = (dp, ds, c, d, done) => { done(); };
@@ -30,14 +29,12 @@ class BatchingTraverse {
     }
 
     _resetStats() {
-        // Traversal statistics.
-        this._numPaths = 0;
         this._numFiles = 0;
         this._numDirectories = 0;
         this._numSoftLinks = 0;
         this._numHardLinks = 0;
-        this._numIgnored = 0;
         this._numBytes = 0;
+        this._numIgnored = 0;
         this._errors = 0;
 
         this._startDate = null;
@@ -67,7 +64,7 @@ class BatchingTraverse {
     }
 
     traverse() {
-        const root = path.normalize(this._rootPath);
+        const root = path.normalize(this.root);
 
         // Reset stats to zero values.
         this._resetStats();

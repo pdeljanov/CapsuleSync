@@ -51,6 +51,14 @@ class Directory {
         this._data.sv = vector;
     }
 
+    modify(time) {
+        this._data.mv = time;
+    }
+
+    synchronize(time) {
+        this._data.sv = time;
+    }
+
     isIdentical(stat) {
         if (stat.mtime.getTime() === this.modificationTime.getTime()) {
             return true;
