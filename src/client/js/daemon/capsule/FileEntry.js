@@ -5,6 +5,7 @@ const PathTools = require('../fs/PathTools.js');
 class File {
 
     constructor(path, blob) {
+        this.path = path;
         this._data = {
             t:   'f',
             typ: '',
@@ -16,16 +17,11 @@ class File {
             b:   blob ? blob.serialize() : null,
             a:   false,
         };
-        this._path = path;
         this._blob = blob || null;
     }
 
     get id() {
         return this._data.id;
-    }
-
-    get path() {
-        return this._path;
     }
 
     get mediaType() {

@@ -4,7 +4,8 @@ const assert = require('assert');
 const debug = require('debug')('Capsule.FSDB.TreeAdapter');
 
 const xxhash = require('xxhash');
-const endStream = require('end-stream');
+// const endStream = require('end-stream');
+const through2 = require('through2');
 
 const { Buffer } = require('buffer');
 const TreePath = require('./TreePath.js');
@@ -37,7 +38,7 @@ class TreeAdapter {
 
     index(indexName, reduceFunc) {
         indexName = `d.${indexName}`;
-        return this._partition.index(indexName, function(node){
+        return this._partition.index(indexName, function(node) {
             return reduceFunc(node.d);
         });
     }
@@ -91,12 +92,19 @@ class TreeAdapter {
                 end:   `${path}\xFF`,
             };
 
-            return this._partition.createReadStream(options)
-                .pipe(endStream((data, next) => {
+            this._partition.createReadStream(options)
+                .pipe(through2.obj((data, enc, next) => {
                     data.value = data.value.d;
                     cb(data, next);
                 }))
                 .on('finish', resolve);
+
+            // this._partition.createReadStream(options)
+            //     .pipe(endStream((data, next) => {
+            //         data.value = data.value.d;
+            //         cb(data, next);
+            //     }))
+            //     .on('finish', resolve);
         });
     }
 }

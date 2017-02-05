@@ -30,6 +30,10 @@ class CapsuleEntry {
             return CapsuleEntry.Type.UNKNOWN;
         }
     }
+
+    static getName(serialization) {
+        return serialization.fn || serialization.din;
+    }
 }
 
 CapsuleEntry.Type = {

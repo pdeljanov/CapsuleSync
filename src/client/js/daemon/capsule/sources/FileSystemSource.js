@@ -1,5 +1,6 @@
 const debug = require('debug')('Capsule.Sources.FileSystemSource');
 const fs = require('original-fs');
+const async = require('async');
 
 const Source = require('./Source.js');
 const PathTools = require('../../fs/PathTools.js');
@@ -28,6 +29,22 @@ function batch(arr, n, func, done) {
     }
     else {
         func(arr, done);
+    }
+}
+
+
+class Directory {
+    static getChildren(path) {
+        return new Promise((resolve, reject) => {
+            fs.readdir(path, (err, children) => {
+                if (!err) {
+                    resolve(children);
+                }
+                else {
+                    reject(err);
+                }
+            });
+        });
     }
 }
 
@@ -99,83 +116,152 @@ class FileSystemSource extends Source {
 
     traverse(add, commit) {
         return new Promise((resolve, reject) => {
-            const walker = new Traverse(this._root, { followLinks: true, progressInterval: 500 });
-
-            walker.directory = (dirPath, dirStat, contents, depth, next) => {
-                // Add directory.
-                add(DirectoryEntry.makeFromStat(PathTools.stripRoot(dirPath, this._root), dirStat));
-
-                // Iterate through each item in the directory in asynchronous batches.
-                batch(contents, 32, (items, cb) => {
-                    items.forEach((item) => {
-                        const relativePath = PathTools.stripRoot(item.path, this._root);
-                        const stat = item.stat;
-
-                        if (stat.isFile()) {
-                            const file = FileEntry.makeFromStat(relativePath, stat);
-                            if (this.filters.evaluate(file)) {
-                                add(file);
-                            }
-                        }
-                        else if (stat.isSymbolicLink()) {
-                            const linkedPath = PathTools.stripRoot(item.linkedPath, this._root);
-                            add(LinkEntry.makeFromStat(relativePath, linkedPath, stat));
-                        }
-                    });
-                    cb();
-                },
-                () => {
-                    // Issue a commit before continuing on the traversal.
-                    commit().then(next);
-                });
+            const progress = (p) => {
+                if (!p.finished) {
+                    debug(`[${this._id}] Scaning... Files: ${p.files}, Directories: ${p.directories}, Size: ${p.totalSize}, Time: ${p.duration}`);
+                }
+                else {
+                    const speed = Math.floor((1000 * p.files) / p.duration);
+                    debug(`[${this._id}] Scaning complete. Files: ${p.files}, Directories: ${p.directories}, Size: ${p.totalSize}, Time: ${p.duration}, Avg. Speed: ${speed} files/s`);
+                }
             };
 
-            walker.on('progress', (p) => {
-                debug(`[${this._id}] Scaning... Files: ${p.files}, Directories: ${p.directories}, Size: ${p.totalSize}, Time: ${p.duration}`);
-            });
-
-            walker.traverse().then(() => {
-                this.lastScan = Date();
-
-                const s = walker.stats();
-                const speed = Math.floor((1000 * s.files) / s.duration);
-                debug(`[${this._id}] Scaning complete. Files: ${s.files}, Directories: ${s.directories}, Size: ${s.totalSize}, Time: ${s.duration}, Avg. Speed: ${speed} files/s`);
-                resolve();
-            }).catch(reject);
+            this._walkTree(this._root, add, commit, progress)
+                .then(() => {
+                    this.lastScan = Date();
+                    resolve();
+                })
+                .catch(reject);
         });
+    }
+
+    _walkTree(root, add, commit, progress) {
+        const walker = new Traverse(root, { followLinks: true, progressInterval: 500 });
+
+        walker.progress = progress || (() => {});
+
+        walker.directory = (dirPath, dirStat, contents, depth, next) => {
+            // Add directory.
+            add(DirectoryEntry.makeFromStat(PathTools.stripRoot(dirPath, root), dirStat));
+
+            // Iterate through each item in the directory in asynchronous batches.
+            batch(contents, 32, (items, cb) => {
+                items.forEach((item) => {
+                    const relativePath = PathTools.stripRoot(item.path, root);
+                    const stat = item.stat;
+
+                    if (stat.isFile()) {
+                        const file = FileEntry.makeFromStat(relativePath, stat);
+                        if (this.filters.evaluate(file)) {
+                            add(file);
+                        }
+                    }
+                    else if (stat.isSymbolicLink()) {
+                        const linkedPath = PathTools.stripRoot(item.linkedPath, root);
+                        add(LinkEntry.makeFromStat(relativePath, linkedPath, stat));
+                    }
+                });
+                cb();
+            },
+            () => {
+                // Issue a commit before continuing on the traversal.
+                commit().then(next);
+            });
+        };
+
+        return walker.traverse();
     }
 
     delta(tree, upsert, remove, commit) {
         return new Promise((resolve, reject) => {
             let lastRemovedPath = null;
 
-            function scanDirectory(dir, done) {
-                tree.getChildren(dir.path).then(() => {
+            // Find added children to the directory.
+            const findDirectoryAdditions = (realPath, path, done) => {
+                const fsGet = Directory.getChildren(realPath);
+                const dbGet = tree.getChildren(path);
+
+                Promise.all([fsGet, dbGet]).then((values) => {
+                    const cur = values[0];
+                    const old = new Set(values[1].map(item => CapsuleEntry.getName(item.data)));
+                    const added = cur.filter(item => !old.has(item));
+                    done(added.map(item => PathTools.appendRoot(realPath, item)));
+                })
+                .catch((err) => {
+                    debug(`[${this._id}] Could not scan directory at: ${path} due to error: ${err.code}.`);
                     done();
                 });
-            }
+            };
+
+            // Scan newly added directory.
+            const addDirectory = (scanPath, done) => {
+                const adjustedRoot = PathTools.stripRoot(scanPath, this._root);
+                this._walkTree(scanPath,
+                    (entry) => {
+                        entry.path = PathTools.appendRoot(adjustedRoot, entry.path);
+                        upsert(entry);
+                        // debug(`[${this._id}] Added at: ${realPath}.`);
+                    },
+                    () => Promise.resolve())
+                    .then(done);
+            };
+
+            const processAdditions = (realPaths, done) => {
+                async.map(realPaths, (realPath, next) => {
+                    fs.lstat(realPath, (err, stat) => {
+                        if (!err) {
+                            if (stat.isDirectory()) {
+                                addDirectory(realPath, next);
+                            }
+                            else {
+                                const relativePath = PathTools.stripRoot(realPath, this._root);
+
+                                if (stat.isFile()) {
+                                    const file = FileEntry.makeFromStat(relativePath, stat);
+                                    if (this.filters.evaluate(file)) {
+                                        upsert(file);
+                                        // debug(`[${this._id}] Added file at: ${realPath}.`);
+                                    }
+                                }
+                                else if (stat.isSymbolicLink()) {
+                                    const linkedPath = ''; // PathTools.stripRoot(linkedPath, this._root);
+                                    const link = LinkEntry.makeFromStat(relativePath, '', stat);
+                                    // debug(`[${this._id}] Added link at: ${realPath}.`);
+                                    upsert(link);
+                                }
+                                next();
+                            }
+                        }
+                        else {
+                            next(null, null);
+                        }
+                    });
+                },
+                done);
+            };
 
             tree.scanSubTree('', (data, next) => {
-                const path = PathTools.appendRoot(this._root, data.key);
+                const realPath = PathTools.appendRoot(this._root, data.key);
+                const path = data.key;
                 const type = CapsuleEntry.getType(data.value);
 
-                // Do not lstat if the blob does not exist.
-                if (type === CapsuleEntry.Type.FILE) {
-                }
                 // If the current path is prefixed with the last previously deleted directory path,
                 // may be safely skipped as it would be considered deleted.
-                else if (type === CapsuleEntry.Type.Directory && path.startsWith(lastRemovedPath)) {
-                    debug(`[${this._id}] Skipping: ${path} since parent: ${lastRemovedPath} was removed.`);
+                if (realPath.startsWith(lastRemovedPath)) {
+                    // debug(`[${this._id}] Skipping: ${path} since parent was removed.`);
                     return next();
                 }
 
                 // Get the stat information for the item being scanned.
-                return fs.lstat(path, (err, stat) => {
+                return fs.lstat(realPath, (err, stat) => {
                     if (err) {
                         // Deletion.
                         if (err.code === 'ENOENT') {
-                            lastRemovedPath = path;
-                            debug(`[${this._id}] Removal at: ${path}`);
+                            if (type === CapsuleEntry.Type.DIRECTORY) {
+                                lastRemovedPath = realPath;
+                            }
+                            // debug(`[${this._id}] Removal of: ${path}`);
+                            remove(path);
                         }
                         else {
                             debug(`[${this._id}] Unknown error at: ${path}`);
@@ -187,7 +273,8 @@ class FileSystemSource extends Source {
                             const file = FileEntry.makeFromSerialization(path, data.value);
 
                             if (!file.isIdentical(stat)) {
-                                debug(`[${this._id}] File difference for: ${path}.`);
+                                // debug(`[${this._id}] File difference for: ${path}.`);
+                                upsert(file);
                             }
                         }
                         // Directory
@@ -195,8 +282,9 @@ class FileSystemSource extends Source {
                             const dir = DirectoryEntry.makeFromSerialization(path, data.value);
 
                             if (!dir.isIdentical(stat)) {
-                                debug(`[${this._id}] Directory scan required at: ${path}.`);
-                                return scanDirectory(dir, next);
+                                return findDirectoryAdditions(realPath, data.key, (additions) => {
+                                    processAdditions(additions, next);
+                                });
                             }
                         }
                         // Link
@@ -204,7 +292,8 @@ class FileSystemSource extends Source {
                             const link = LinkEntry.makeFromSerialization(path, data.value);
 
                             if (!link.isIdentical(stat)) {
-                                debug(`[${this._id}] Link difference for: ${path}.`);
+                                // debug(`[${this._id}] Link difference for: ${path}.`);
+                                upsert(link);
                             }
                         }
                         // Type mistach

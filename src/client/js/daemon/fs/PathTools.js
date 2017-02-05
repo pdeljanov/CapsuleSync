@@ -26,4 +26,5 @@ class PathTools {
     static appendRoot(root, givenPath) {
         return path.join(root, givenPath);
     }
+
 };

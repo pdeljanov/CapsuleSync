@@ -4,6 +4,7 @@ const PathTools = require('../fs/PathTools.js');
 class Directory {
 
     constructor(path) {
+        this.path = path;
         this._data = {
             t:   'd',
             id:  0,
@@ -13,15 +14,10 @@ class Directory {
             mv:  { },
             sv:  { },
         };
-        this._path = path;
     }
 
     get id() {
         return this._data.id;
-    }
-
-    get path() {
-        return this._path;
     }
 
     get displayName() {

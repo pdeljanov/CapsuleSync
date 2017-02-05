@@ -5,13 +5,9 @@ const fs = require('original-fs');
 const path = require('path');
 const async = require('async');
 
-const EventEmitter = require('events');
-
-class BatchingTraverse extends EventEmitter {
+class BatchingTraverse {
 
     constructor(rootPath, options = {}) {
-        super();
-
         assert(typeof rootPath, 'string', 'RootPath must be a string.');
         assert(typeof options, 'object', 'Options must be an object.');
 
@@ -28,6 +24,7 @@ class BatchingTraverse extends EventEmitter {
         this._queue = async.queue(this._traverse.bind(this), 1);
 
         this.directory = (dp, ds, c, d, done) => { done(); };
+        this.progress = () => {};
 
         this._resetStats();
     }
@@ -84,7 +81,9 @@ class BatchingTraverse extends EventEmitter {
         // Return a promise for when the traversal is complete.
         return new Promise((resolve, reject) => {
             if (this._options.progressInterval) {
-                this._progressInterval = setInterval(() => { this.emit('progress', this.stats()); }, this._options.progressInterval);
+                this._progressInterval = setInterval(() => {
+                    this.progress(this.stats());
+                }, this._options.progressInterval);
             }
 
             this._queue.error =
@@ -96,6 +95,8 @@ class BatchingTraverse extends EventEmitter {
                 this._endDate = Date();
                 this._hardLinked = {};
                 this._softLinked = {};
+
+                this.progress(this.stats());
 
                 if (!err) {
                     resolve();

@@ -153,14 +153,16 @@ class Dispatcher {
 
         function upsert(data) {
             data.modificationVector = time;
-            batch.push({ key: data.path, value: data.serialize() });
-            if (batch.length >= Dispatcher.SCAN_COMMIT_QUEUE_LENGTH) {
-                commit();
-            }
+            debug(`\u0394-Scan Upsert: ${data.path}`);
+            // batch.push({ key: data.path, value: data.serialize() });
+            // if (batch.length >= Dispatcher.SCAN_COMMIT_QUEUE_LENGTH) {
+            //     commit();
+            // }
         }
 
         function remove(key) {
-            tree.delSubTree(key);
+            debug(`\u0394-Scan Remove: ${key}`);
+            // tree.delSubTree(key);
         }
 
         return new Promise((resolve, reject) => {

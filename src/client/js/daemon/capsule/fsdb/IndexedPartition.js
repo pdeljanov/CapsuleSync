@@ -253,7 +253,7 @@ class IndexedPartition extends Partition {
             this.createIndexStream(indexName, options).pipe(through2.obj((data, enc, cb) => {
                 // Use the keys to get the values associated with the lookup.
                 this._db.get(data.dataKey, (err, value) => {
-                    cb(null, { key: data.dataKey, value: value });
+                    cb(null, { key: this._decodeKey(data.dataKey), value: value });
                 });
             }))
             .on('data', (data) => {
