@@ -146,7 +146,7 @@ class Dispatcher {
         }
 
         return new Promise((resolve, reject) => {
-            debug(`\u222B-Scan [${source.id}] complete.`);
+            debug(`\u222B-Scan [${source.id}] started.`);
             source.integral(add, commit, progress).then(commit).then(resolve).catch(reject);
         });
     }
@@ -179,12 +179,14 @@ class Dispatcher {
 
         function progress(p) {
             const duration = Math.ceil(p.duration);
+            const deltaFiles = `${p.added.files - p.removed.files} (+${p.added.files}/-${p.removed.files})`;
+            const deltaDirectories = `${p.added.directories - p.removed.directories} (+${p.added.directories}/-${p.removed.directories})`;
             if (p.finished) {
-                const speed = Math.floor((1000 * p.files) / p.duration);
-                debug(`\u0394-Scan [${source.id}] complete! Files: ${p.files}, Directories: ${p.directories}, Time: ${duration}ms, Avg. Speed: ${speed} files/s`);
+                const speed = Math.floor((1000 * p.entries) / p.duration);
+                debug(`\u0394-Scan [${source.id}] complete! Files: ${deltaFiles}, Directories: ${deltaDirectories}, Time: ${duration}ms, Avg. Speed: ${speed} entries/s`);
             }
             else {
-                debug(`\u0394-Scan [${source.id}] progress... Files: ${p.files}, Directories: ${p.directories}, Time: ${duration}ms`);
+                debug(`\u0394-Scan [${source.id}] progress... Files: ${deltaFiles}, Directories: ${deltaDirectories}, Time: ${duration}ms`);
             }
         }
 

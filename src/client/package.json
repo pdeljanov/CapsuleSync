@@ -34,6 +34,7 @@
     "debug": "^2.6.0",
     "deep-extend": "^0.4.1",
     "end-stream": "^0.1.0",
+    "fluent-ffmpeg": "^2.1.0",
     "key-path-helpers": "^0.4.0",
     "level-delete-range": "^0.1.0",
     "leveldown": "^1.5.2",
@@ -41,6 +42,7 @@
     "mdns": "^2.3.3",
     "media-type": "^0.3.0",
     "mime-types": "^2.1.13",
+    "nsfw": "^1.0.14",
     "pem": "^1.9.4",
     "through2": "^2.0.3",
     "xxhash": "^0.2.4"

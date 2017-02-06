@@ -43,6 +43,10 @@ class IntegralScanner {
         this._scanner.progress = progress;
     }
 
+    stats() {
+        return this._scanner.stats();
+    }
+
     run() {
         this._scanner.directory = (dirPath, dirStat, contents, depth, next) => {
             // Add directory.
