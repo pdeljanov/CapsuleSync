@@ -2,7 +2,7 @@ const debug = require('debug')('Capsule.Sources.FileSystem.FileSystemSource');
 const fs = require('original-fs');
 
 const Source = require('../Source.js');
-const IntegralScanner = require('./IntegralScanner.js');
+const IntegralScanner = require('./IntegralScanner2.js');
 const DeltaScanner = require('./DeltaScanner.js');
 const { FilterSet } = require('../../FilterSet.js');
 

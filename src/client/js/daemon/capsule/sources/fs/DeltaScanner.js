@@ -5,7 +5,7 @@ const fs = require('original-fs');
 const PathTools = require('../../../fs/PathTools.js');
 const Directory = require('../../../fs/Directory.js');
 const Link = require('../../../fs/Link.js');
-const IntegralScanner = require('./IntegralScanner.js');
+const IntegralScanner = require('./IntegralScanner2.js');
 const { FileEntry, LinkEntry, DirectoryEntry, CapsuleEntry } = require('../../CapsuleEntry.js');
 
 /* global performance:true */
