@@ -15,7 +15,7 @@ class File {
             mv:  { },
             sv:  { },
             b:   blob ? blob.serialize() : null,
-            a:   false,
+            a:   blob != null,
         };
         this._blob = blob || null;
     }

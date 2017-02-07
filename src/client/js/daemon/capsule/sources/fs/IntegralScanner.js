@@ -6,38 +6,11 @@ const path = require('path');
 const async = require('async');
 
 const PathTools = require('../../../fs/PathTools.js');
+const PathStack = require('./PathStack.js');
 const Link = require('../../../fs/Link.js');
 const { FileEntry, LinkEntry, DirectoryEntry } = require('../../CapsuleEntry.js');
 
 /* global performance:true */
-
-class TraverseStack {
-    constructor() {
-        this._stack = [];
-    }
-
-    push(fullPath, id) {
-        this._stack.push({ path: fullPath, id: id });
-    }
-
-    interogatePath(fullPath) {
-        while (this._stack.length > 0) {
-            const current = this._stack[this._stack.length - 1];
-            const currentPath = (current && current.path) || '';
-
-            if (!fullPath.startsWith(currentPath)) {
-                this._stack.pop();
-            }
-            else {
-                break;
-            }
-        }
-    }
-
-    attempt(toId) {
-        return this._stack.find(level => level.id === toId);
-    }
-}
 
 class IntegralScanner {
 
@@ -54,14 +27,13 @@ class IntegralScanner {
 
         this.root = root;
 
-        // this.directory = (dp, ds, c, done) => { done(); };
         this.progress = () => {};
         this.insert = (() => {});
         this.commit = (() => Promise.resolve());
         this.filter = (() => true);
 
-        this._traverse = new TraverseStack();
-        this._stack = [];
+        this._pathStack = null;
+        this._traversalStack = [];
 
         this._resetStats();
     }
@@ -130,17 +102,18 @@ class IntegralScanner {
 
                 // Following links makes us liable to creating infinite loops. Therefore, if for the given traversal
                 // path we back track in such a way it'll lead us down the same path, create a link.
-                const level = this._traverse.attempt(link.linkedStat.ino);
+                const level = this._pathStack.attempt(link.linkedStat.ino);
 
                 if (level != null) {
                     debug(`Link cycle: '${linkPath}' -> '${level.path}' detected. Ignoring further recursion.`);
                     this._numSoftLinks += 1;
                     const relativeLinkPath = PathTools.stripRoot(level.path, this.root);
+                    // this.insert(WeakLinkEntry.makeFromStat(relativePath, relativeLinkPath, linkStat));
                     this.insert(LinkEntry.makeFromStat(relativePath, relativeLinkPath, linkStat));
                 }
                 // If a directory is linked, push the linked path to the work queue.
                 else if (link.linkedStat.isDirectory()) {
-                    this._stack.push(linkPath);
+                    this._traversalStack.push(linkPath);
                     this.insert(DirectoryEntry.makeFromStat(relativePath, link.linkedStat));
                 }
                 // If a file is linked, count the file and swap stat information.
@@ -190,7 +163,7 @@ class IntegralScanner {
                     }
                     // Count # of directories, and queue a task to travese into it.
                     else if (childStat.isDirectory()) {
-                        this._stack.push(childPath);
+                        this._traversalStack.push(childPath);
                         next();
                     }
                     // Count # of links, and follow the link to queue a task to traverse it.
@@ -236,7 +209,7 @@ class IntegralScanner {
     _traverseSubTree(dirPath, done) {
         fs.stat(dirPath, (err, dirStat) => {
             if (!err) {
-                this._traverse.push(dirPath, dirStat.ino);
+                this._pathStack.push(dirPath, dirStat.ino);
                 this._getDirectoryContents(dirPath, dirStat, done);
             }
             else {
@@ -247,7 +220,7 @@ class IntegralScanner {
         });
     }
 
-    run() {
+    run(pathStack) {
         return new Promise((resolve) => {
             const root = path.normalize(this.root);
 
@@ -255,20 +228,27 @@ class IntegralScanner {
             this._resetStats();
             this._startStats();
 
-            const runNext = () => {
-                if (this._stack.length > 0) {
-                    const nextPath = this._stack.pop();
+            this._pathStack = pathStack || new PathStack();
+            this._traversalStack = [];
 
-                    this._traverse.interogatePath(nextPath);
+            const runNext = () => {
+                if (this._traversalStack.length > 0) {
+                    const nextPath = this._traversalStack.pop();
+
+                    this._pathStack.interogatePath(nextPath);
                     this._traverseSubTree(nextPath, runNext);
                 }
                 else {
                     this._endStats();
+
+                    this._traverse = null;
+                    this._traversalStack = [];
+
                     resolve();
                 }
             };
 
-            this._stack.push(root);
+            this._traversalStack.push(root);
             runNext();
         });
     }

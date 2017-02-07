@@ -308,7 +308,7 @@ class DeltaScanner {
                                 this.upsert(link);
                             }
                         }
-                        // Type mistach
+                        // Type mistach for file or directory.
                         else {
                             debug(`Type mismatch for: ${relativePath}.`);
                             this._errors += 1;
