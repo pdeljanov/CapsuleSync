@@ -1,51 +1,23 @@
 const assert = require('assert');
-const debug = require('debug')('Capsule.Sources.FileSystem.IntegralScanner2');
+const debug = require('debug')('Capsule.Sources.FileSystem.IntegralScanner');
 
 const fs = require('original-fs');
 const path = require('path');
 const async = require('async');
 
 const PathTools = require('../../../fs/PathTools.js');
-const Directory = require('../../../fs/Directory.js');
 const Link = require('../../../fs/Link.js');
-const { FileEntry, LinkEntry, DirectoryEntry, CapsuleEntry } = require('../../CapsuleEntry.js');
+const { FileEntry, LinkEntry, DirectoryEntry } = require('../../CapsuleEntry.js');
 
 /* global performance:true */
-
-function Stat(path) {
-    return new Promise((resolve, reject) => {
-        fs.stat(path, (err, stat) => {
-            if (!err) {
-                resolve(stat);
-            }
-            else {
-                reject(err);
-            }
-        });
-    });
-}
-
-function StatNoFollow(path) {
-    return new Promise((resolve, reject) => {
-        fs.lstat(path, (err, stat) => {
-            if (!err) {
-                resolve(stat);
-            }
-            else {
-                reject(err);
-            }
-        });
-    });
-}
-
 
 class TraverseStack {
     constructor() {
         this._stack = [];
     }
 
-    push(fullPath, relativePath, id) {
-        this._stack.push({ path: fullPath, relativePath: relativePath, id: id });
+    push(fullPath, id) {
+        this._stack.push({ path: fullPath, id: id });
     }
 
     interogatePath(fullPath) {
@@ -67,7 +39,7 @@ class TraverseStack {
     }
 }
 
-class IntegralScanner2 {
+class IntegralScanner {
 
     constructor(root, options) {
         assert(typeof root, 'string', 'RootPath must be a string.');
@@ -148,10 +120,10 @@ class IntegralScanner2 {
         this.progress(this.stats());
     }
 
-    _getLinkChild(linkPath, linkStat) {
+    _getLinkChild(linkPath, linkStat, done) {
         // If this is a link, it must be resolved BEFORE calling the
         // next callback to avoid race conditions.
-        return Link.resolve(linkPath).then((link) => {
+        Link.resolve(linkPath).then((link) => {
             // If following links...
             if (this._options.followLinks) {
                 const relativePath = PathTools.stripRoot(linkPath, this.root);
@@ -159,117 +131,120 @@ class IntegralScanner2 {
                 // Following links makes us liable to creating infinite loops. Therefore, if for the given traversal
                 // path we back track in such a way it'll lead us down the same path, create a link.
                 const level = this._traverse.attempt(link.linkedStat.ino);
+
                 if (level != null) {
-                    debug(`Link cycle: ${linkPath} -> ${level.relativePath} detected. Ignoring further recursion.`);
+                    debug(`Link cycle: '${linkPath}' -> '${level.path}' detected. Ignoring further recursion.`);
                     this._numSoftLinks += 1;
-                    return LinkEntry.makeFromStat(relativePath, level.relativePath, linkStat);
+                    const relativeLinkPath = PathTools.stripRoot(level.path, this.root);
+                    this.insert(LinkEntry.makeFromStat(relativePath, relativeLinkPath, linkStat));
                 }
                 // If a directory is linked, push the linked path to the work queue.
                 else if (link.linkedStat.isDirectory()) {
                     this._stack.push(linkPath);
-                    return DirectoryEntry.makeFromStat(relativePath, link.linkedStat);
+                    this.insert(DirectoryEntry.makeFromStat(relativePath, link.linkedStat));
                 }
                 // If a file is linked, count the file and swap stat information.
                 else if (link.linkedStat.isFile()) {
                     this._numFiles += 1;
                     this._numBytes += link.linkedStat.size;
-                    return FileEntry.makeFromStat(relativePath, link.linkedStat);
+                    this.insert(FileEntry.makeFromStat(relativePath, link.linkedStat));
                 }
-
                 // Neither a file nor directory, therefore ignore.
-                debug(`Linked: ${link.linkedPath} is neither a file, or directory. Ignoring.`);
-                this._ignored += 1;
-                return Promise.resolve(null);
+                else {
+                    debug(`Linked: '${link.linkedPath}' is neither a file, or directory. Ignoring.`);
+                    this._ignored += 1;
+                }
+                done();
             }
-
             // If not following links. Append the linkedPath to the child
             // content.
-            return LinkEntry.makeFromStat(linkPath, linkStat, link.linkedPath);
+            else {
+                this.insert(LinkEntry.makeFromStat(linkPath, linkStat, link.linkedPath));
+                done();
+            }
         })
         .catch((err) => {
-            debug(`Failed to resolve link: ${linkPath} due to error: ${err.code}.`);
+            debug(`Failed to resolve link: '${linkPath}' due to error: ${err.code}.`);
             this._errors += 1;
             // TODO: Handle ELOOP errors. When not following symlinks, these
             // links should be faithfully represented.
-            return Promise.resolve(null);
+            done();
         });
     }
 
-    _getDirectoryContentsStat(dirPath, dirStat, childPaths) {
-        return new Promise((resolve) => {
-            this.insert(DirectoryEntry.makeFromStat(PathTools.stripRoot(dirPath, this.root), dirStat));
+    _getDirectoryContentsStat(dirPath, dirStat, childPaths, done) {
+        this._numDirectories += 1;
+        this.insert(DirectoryEntry.makeFromStat(PathTools.stripRoot(dirPath, this.root), dirStat));
 
-            async.eachLimit(childPaths, this._options.numJobs, (childName, next) => {
-                const childPath = path.join(dirPath, childName);
+        async.eachLimit(childPaths, this._options.numJobs, (childName, next) => {
+            const childPath = path.join(dirPath, childName);
 
-                // Stat the child path without following any links.
-                StatNoFollow(childPath).then((childStat) => {
+            fs.lstat(childPath, (err, childStat) => {
+                if (!err) {
                     // Count # of files and total byteLength.
                     if (childStat.isFile()) {
                         this._numFiles += 1;
                         this._numBytes += childStat.size;
-                        return FileEntry.makeFromStat(PathTools.stripRoot(childPath, this.root), childStat);
+                        this.insert(FileEntry.makeFromStat(PathTools.stripRoot(childPath, this.root), childStat));
+                        next();
                     }
                     // Count # of directories, and queue a task to travese into it.
                     else if (childStat.isDirectory()) {
                         this._stack.push(childPath);
-                        return Promise.resolve();
+                        next();
                     }
                     // Count # of links, and follow the link to queue a task to traverse it.
                     else if (childStat.isSymbolicLink()) {
                         if (!this._options.followLinks) {
                             this._numSoftLinks += 1;
                         }
-                        return this._getLinkChild(childPath, childStat);
-                    }
 
-                    // Not a file, directory, nor link.
-                    debug(`Path: ${childPath} is neither a file, directory, nor link. Ignoring.`);
-                    this._ignored += 1;
-                    return Promise.resolve();
-                })
-                .then((child) => {
-                    if (child) {
-                        this.insert(child);
+                        this._getLinkChild(childPath, childStat, next);
                     }
-                    next();
-                })
-                .catch((err) => {
-                    debug(`Failed to stat: ${childPath} with error: ${err.code}.`);
+                    else {
+                        // Not a file, directory, nor link.
+                        debug(`Path: '${childPath}' is neither a file, directory, nor link. Ignoring.`);
+                        this._ignored += 1;
+                        next();
+                    }
+                }
+                else {
+                    debug(`Failed to stat: '${childPath}' with error: ${err.code}.`);
                     this._errors += 1;
                     next();
-                });
-            },
-            () => {
-                this.commit().then(resolve);
+                }
             });
+        },
+        () => {
+            this.commit().then(done);
         });
     }
 
-    _getDirectoryContents(dirPath, dirStat) {
-        return Directory.getChildren(dirPath).then((childPaths) => {
-            this._numDirectories += 1;
-            return this._getDirectoryContentsStat(dirPath, dirStat, childPaths);
-        })
-        .catch((err) => {
-            debug(`Failed enumeration: ${dirPath} with error: ${err.code}.`);
-            this._errors += 1;
+    _getDirectoryContents(dirPath, dirStat, done) {
+        fs.readdir(dirPath, (err, childPaths) => {
+            if (!err) {
+                this._getDirectoryContentsStat(dirPath, dirStat, childPaths, done);
+            }
+            else {
+                debug(`Failed enumeration: '${dirPath}' with error: ${err.code}.`);
+                this._errors += 1;
+                done();
+            }
         });
     }
 
-    _getDirectoryStat(dirPath) {
-        return Stat(dirPath).then((stat) => {
-            this._traverse.push(dirPath, dirPath, stat.ino);
-            return this._getDirectoryContents(dirPath, stat);
-        })
-        .catch((err) => {
-            debug(`Failed stat: ${dirPath} with error: ${err.code}.`);
-            this._errors += 1;
+    _traverseSubTree(dirPath, done) {
+        fs.stat(dirPath, (err, dirStat) => {
+            if (!err) {
+                this._traverse.push(dirPath, dirStat.ino);
+                this._getDirectoryContents(dirPath, dirStat, done);
+            }
+            else {
+                debug(`Failed stat: '${dirPath}' with error: ${err.code}.`);
+                this._errors += 1;
+                done();
+            }
         });
-    }
-
-    _traverseSubTree(dirPath) {
-        return this._getDirectoryStat(dirPath);
     }
 
     run() {
@@ -285,7 +260,7 @@ class IntegralScanner2 {
                     const nextPath = this._stack.pop();
 
                     this._traverse.interogatePath(nextPath);
-                    this._traverseSubTree(nextPath).then(runNext).catch(() => runNext());
+                    this._traverseSubTree(nextPath, runNext);
                 }
                 else {
                     this._endStats();
@@ -300,4 +275,4 @@ class IntegralScanner2 {
 
 }
 
-module.exports = IntegralScanner2;
+module.exports = IntegralScanner;
