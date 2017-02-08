@@ -118,7 +118,7 @@ class Capsule extends EventEmitter {
         }
 
         // Load the dispatcher
-        function loadDispatcher(db, sources, deviceNumericId) {
+        function loadDispatcher(db, deviceNumericId) {
             return db.config('capsule.sync.clock').get()
                 .then((currentVector) => {
                     const clock = new VectorClock(deviceNumericId, currentVector);

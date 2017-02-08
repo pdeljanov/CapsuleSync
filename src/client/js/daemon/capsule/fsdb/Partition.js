@@ -69,7 +69,7 @@ class Partition {
                 .then(resolve)
                 .catch((err) => {
                     // Create the header.
-                    this._createHeader('partition')
+                    this._createHeader('part')
                         .then(resolve)
                         .catch(reject);
                 });

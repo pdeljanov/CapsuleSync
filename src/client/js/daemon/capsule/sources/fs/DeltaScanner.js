@@ -313,6 +313,7 @@ class DeltaScanner {
                             const file = FileEntry.makeFromSerialization(relativePath, data.value);
 
                             if (!file.isIdentical(stat)) {
+                                file.update(stat);
                                 this.upsert(file);
                             }
 
@@ -323,6 +324,7 @@ class DeltaScanner {
                             const dir = DirectoryEntry.makeFromSerialization(relativePath, data.value);
 
                             if (!dir.isIdentical(stat)) {
+                                dir.update(stat);
                                 this.upsert(dir);
                                 return this._findAddedPaths(path, data.key, (additions) => {
                                     this._processAddedPaths(additions, next);
@@ -345,6 +347,7 @@ class DeltaScanner {
                                     // TODO: Do we have to check if the linked path changed? Symlinks have no atomic
                                     // edit capability.
                                     if (!link.isIdentical(linkStat)) {
+                                        link.update(linkStat);
                                         this.upsert(link);
                                     }
                                 }
@@ -365,6 +368,7 @@ class DeltaScanner {
                                 const link = LinkEntry.makeFromSerialization(relativePath, data.value);
 
                                 if (!link.isIdentical(stat)) {
+                                    link.update(stat);
                                     this.upsert(link);
                                 }
                                 return next();
@@ -379,6 +383,7 @@ class DeltaScanner {
             })
             .then(() => {
                 this._endStats();
+                this._pathStack = null;
                 resolve();
             })
             .catch(reject);

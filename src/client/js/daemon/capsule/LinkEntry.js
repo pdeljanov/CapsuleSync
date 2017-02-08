@@ -72,6 +72,13 @@ class LinkEntry {
         this._data.sv = time;
     }
 
+    update(stat) {
+        if (this._blob) {
+            this._blob.update(stat);
+            this._data.b = this._blob.serialize();
+        }
+    }
+
     serialize() {
         return this._data;
     }

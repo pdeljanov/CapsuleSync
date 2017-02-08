@@ -26,14 +26,19 @@ class IndexedPartition extends Partition {
         this._indicies = [];
     }
 
-/*
-    prepare(){
-        super.prepare().then((metadata) => {
-            metadata = metadata || {};
-            this._indicies = [];
+    prepare() {
+        return new Promise((resolve, reject) => {
+            // Attempt to get the header, if it fails, create it.
+            this._getHeader()
+                .then(resolve)
+                .catch(() => {
+                    // Create the header.
+                    this._createHeader('idxd')
+                        .then(resolve)
+                        .catch(reject);
+                });
         });
     }
-*/
 
     _encodeIndexKey(key) {
         const encodedKey = bytewise.encode(key).toString('hex');

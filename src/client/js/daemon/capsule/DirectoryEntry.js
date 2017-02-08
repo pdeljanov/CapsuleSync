@@ -66,6 +66,10 @@ class Directory {
         return false;
     }
 
+    update(stat) {
+        this._data.mt = stat.mtime;
+    }
+
     serialize() {
         return this._data;
     }

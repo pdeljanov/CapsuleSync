@@ -89,6 +89,13 @@ class File {
         return false;
     }
 
+    update(stat) {
+        if (this._blob) {
+            this._blob.update(stat);
+            this._data.b = this._blob.serialize();
+        }
+    }
+
     static makeFromSerialization(path, serialization) {
         const blob = serialization.b ? Blob.deserialize(serialization.b) : null;
         const deserialized = new File(path, blob);

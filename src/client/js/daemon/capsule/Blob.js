@@ -48,6 +48,21 @@ class Blob {
         return this._data.mod;
     }
 
+    update(stat) {
+        this._data.bl = stat.size;
+        this._data.ct = new Date(stat.birthtime);
+        this._data.mt = new Date(stat.mtime);
+        this._data.ino = stat.ino;
+        this._data.uid = stat.uid;
+        this._data.gid = stat.gid;
+        this._data.mod = stat.mode;
+        // TODO: Invalidate sha1 based on changes above.
+    }
+
+    serialize() {
+        return this._data;
+    }
+
     static deserialize(serialized) {
         const deserialized = new Blob(
             serialized.bl,
@@ -60,10 +75,6 @@ class Blob {
             serialized.sha1);
 
         return deserialized;
-    }
-
-    serialize() {
-        return this._data;
     }
 
     static fromStat(path, stat) {

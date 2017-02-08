@@ -1,4 +1,4 @@
-const debug = require('debug')('Capsule.Sources.FileSystem.PathStack');
+// const debug = require('debug')('Capsule.Sources.FileSystem.PathStack');
 
 class PathStack {
     constructor() {
@@ -7,7 +7,7 @@ class PathStack {
 
     push(path, id) {
         this._stack.push({ path: path, id: id });
-        debug(`Pushed: ${path}`);
+        // debug(`Pushed: ${path}`);
     }
 
     interogatePath(fullPath) {
@@ -17,7 +17,7 @@ class PathStack {
 
             if (!fullPath.startsWith(currentPath)) {
                 const popped = this._stack.pop();
-                debug(`Popping: ${popped.path}`);
+                // debug(`Popping: ${popped.path}`);
             }
             else {
                 break;

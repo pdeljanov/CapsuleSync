@@ -165,15 +165,15 @@ class Dispatcher {
 
         function upsert(data) {
             data.modify(time);
-            // batch.push({ key: data.path, value: data.serialize() });
-            // if (batch.length >= Dispatcher.SCAN_COMMIT_QUEUE_LENGTH) {
-            //     commit();
-            // }
+            batch.push({ key: data.path, value: data.serialize() });
+            if (batch.length >= Dispatcher.SCAN_COMMIT_QUEUE_LENGTH) {
+                commit();
+            }
             debug(`\u0394-Scan [${source.id}] upsert: ${data.path}`);
         }
 
         function remove(key) {
-            // tree.delSubTree(key);
+            tree.delSubTree(key);
             debug(`\u0394-Scan [${source.id}] remove: ${key}`);
         }
 
