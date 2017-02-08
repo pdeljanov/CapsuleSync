@@ -5,6 +5,7 @@ const fs = require('original-fs');
 const PathTools = require('../../../fs/PathTools.js');
 const Directory = require('../../../fs/Directory.js');
 const Link = require('../../../fs/Link.js');
+const PathStack = require('./PathStack.js');
 const IntegralScanner = require('./IntegralScanner.js');
 const { FileEntry, LinkEntry, DirectoryEntry, CapsuleEntry } = require('../../CapsuleEntry.js');
 
@@ -130,7 +131,7 @@ class DeltaScanner {
         scanner.filter = this.filter;
         scanner.commit = this.commit;
 
-        scanner.run()
+        scanner.run(this._pathStack)
             .then(done)
             .catch(() => {
                 debug(`Failed to scan: ${path}.`);
@@ -138,13 +139,28 @@ class DeltaScanner {
             });
     }
 
+    _addUnfollowedSymlink(path, linkedPath, linkStat, done) {
+        this._addedSoftLinks += 1;
+        this.upsert(LinkEntry.makeFromStat(path, linkedPath, linkStat));
+        done();
+    }
+
     _addSymlink(path, relativePath, stat, done) {
         // Resolve the link.
         Link.resolve(path).then((link) => {
             // If following links, insert an entry appropriate with the linked type.
             if (this._options.followLinks) {
+                // Following links makes us liable to creating infinite loops. Therefore, if for the given traversal
+                // path we back track in such a way it'll lead us down the same path, create a link.
+                const level = this._pathStack.attempt(link.linkedStat.ino);
+
+                if (level != null) {
+                    debug(`Link cycle: '${path}' -> '${level.path}' detected. Ignoring further recursion.`);
+                    const relativeLinkedPath = PathTools.stripRoot(level.path, this.root);
+                    return this._addUnfollowedSymlink(relativePath, relativeLinkedPath, stat, done);
+                }
                 // File.
-                if (link.linkedStat.isFile()) {
+                else if (link.linkedStat.isFile()) {
                     return this._addFile(path, relativePath, link.linkedStat, done);
                 }
                 // Directory.
@@ -231,6 +247,8 @@ class DeltaScanner {
 
             const getStat = this._options.followLinks ? fs.stat : fs.lstat;
 
+            this._pathStack = new PathStack();
+
             this._startStats();
 
             this._tree.scanSubTree('/', (data, next) => {
@@ -260,6 +278,14 @@ class DeltaScanner {
 
                 // Get the stat information for the item being scanned.
                 return getStat(path, (err, stat) => {
+                    // Update the path stack.
+                    if (type === CapsuleEntry.Type.DIRECTORY) {
+                        this._pathStack.interogatePath(path);
+                        if (!err) {
+                            this._pathStack.push(path, stat.ino);
+                        }
+                    }
+
                     if (err) {
                         // Deletion.
                         if (err.code === 'ENOENT') {
@@ -279,6 +305,7 @@ class DeltaScanner {
                             debug(`Unexpected error: ${err.code} at: ${relativePath}`);
                             this._errors += 1;
                         }
+                        return next();
                     }
                     else if (!err) {
                         // File update.
@@ -288,6 +315,8 @@ class DeltaScanner {
                             if (!file.isIdentical(stat)) {
                                 this.upsert(file);
                             }
+
+                            return next();
                         }
                         // Directory update.
                         else if (stat.isDirectory() && type === CapsuleEntry.Type.DIRECTORY) {
@@ -299,22 +328,52 @@ class DeltaScanner {
                                     this._processAddedPaths(additions, next);
                                 });
                             }
+
+                            return next();
+                        }
+                        // Weak link update.
+                        else if (type === CapsuleEntry.Type.LINK && this._options.followLinks) {
+                            // When following links, a Capsule link entry is a weak-link, a link to break cycles
+                            // in the file system structure. The above getStat call is a stat in this case which gets us
+                            // the metadata of the file or directory the link points to, not the link itself. So redo
+                            // with an lstat.
+                            return fs.lstat(path, (linkErr, linkStat) => {
+                                // Path does point to a link.
+                                if (!linkErr && linkStat.isSymbolicLink()) {
+                                    const link = LinkEntry.makeFromSerialization(relativePath, data.value);
+
+                                    // TODO: Do we have to check if the linked path changed? Symlinks have no atomic
+                                    // edit capability.
+                                    if (!link.isIdentical(linkStat)) {
+                                        this.upsert(link);
+                                    }
+                                }
+                                // Path is not actually a link.
+                                else {
+                                    this.remove(relativePath);
+                                }
+
+                                return next();
+                            });
                         }
                         // Link update.
-                        else if (stat.isSymbolicLink() && type === CapsuleEntry.Type.LINK) {
-                            const link = LinkEntry.makeFromSerialization(relativePath, data.value);
+                        else if (type === CapsuleEntry.Type.LINK && !this._options.followLinks) {
+                            // When not following links, a Capsule link entry should mirror an on-disk link entry. The
+                            // getStat call above in this case is an lstat, meaning we can compare the database entry to
+                            // the on-disk entry directly.
+                            if (stat.isSymbolicLink()) {
+                                const link = LinkEntry.makeFromSerialization(relativePath, data.value);
 
-                            if (!link.isIdentical(stat)) {
-                                this.upsert(link);
+                                if (!link.isIdentical(stat)) {
+                                    this.upsert(link);
+                                }
+                                return next();
                             }
                         }
-                        // Type mistach for file or directory.
-                        else {
-                            debug(`Type mismatch for: ${relativePath}.`);
-                            this._errors += 1;
-                        }
-                    }
 
+                        // Type mismatch. Remove database entry.
+                        this.remove(relativePath);
+                    }
                     return next();
                 });
             })

@@ -132,7 +132,7 @@ class Partition {
 
     delRange(options) {
         return new Promise((resolve, reject) => {
-            options.start = this._encodeKey(options.start) + '\x00';
+            options.start = this._encodeKey(options.start);
             options.end = this._encodeKey(options.end) + '\xFF';
             this._db.delRange(options, (err) => {
                 if (!err) {
@@ -146,7 +146,7 @@ class Partition {
     }
 
     createReadStream(options) {
-        options.start = this._encodeKey(options.start) + '\x00';
+        options.start = this._encodeKey(options.start);
         options.end = this._encodeKey(options.end) + '\xFF';
 
         return this._db.createReadStream(options)

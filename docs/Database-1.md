@@ -1,4 +1,4 @@
-# Database-1 Design
+# Database-01 Design
 
 ## Objects
 
@@ -23,6 +23,7 @@
 | getFile | Gets a FileStub with Blob metadata. | No |
 | getFileStub | Gets a FileStub. | No |
 | getFileBlob | Gets a Blob. | No |
+| getFileVariants | Gets all File variants. | No |
 | recordFileBlobChanged | Records a local modification to a file blob. | Yes |
 | syncFileBlob | Records a blob has been changed due to a synchronization. | Yes |
 | getDirectory | Gets Directory information metadata. | No |

@@ -20,7 +20,11 @@ class PathTools {
     }
 
     static stripRoot(givenPath, root) {
-        return givenPath.replace(root, '');
+        const striped = givenPath.replace(root, '');
+        if (striped === '') {
+            return '/';
+        }
+        return striped;
     }
 
     static appendRoot(root, givenPath) {
