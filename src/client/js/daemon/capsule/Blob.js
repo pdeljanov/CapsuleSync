@@ -1,5 +1,3 @@
-const PathTools = require('../fs/PathTools.js');
-
 module.exports =
 class Blob {
 

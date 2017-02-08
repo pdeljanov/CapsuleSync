@@ -2,9 +2,7 @@
 
 const debug = require('debug')('Capsule.Capsule');
 
-const electron = require('electron')
 const EventEmitter = require('events');
-
 const Database = require('./fsdb/Database.js');
 const TreeAdapter = require('./fsdb/TreeAdapter.js');
 const SourceFactory = require('./sources/SourceFactory.js');

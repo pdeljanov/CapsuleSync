@@ -11,14 +11,14 @@ class Dispatcher {
         this._activeScan = null;
     }
 
-    addSource(partition, source) {
+    addSource(tree, source) {
         // Append the newly loaded source to the sources list.
         this.sources.push(source);
 
         // Attach event listeners.
-        source.on('initialScan', this.dispatch.bind(this, Dispatcher.Events.INITIAL_SCAN, partition, source));
-        source.on('deltaScan', this.dispatch.bind(this, Dispatcher.Events.DELTA_SCAN, partition, source));
-        source.on('change', this.dispatch.bind(this, Dispatcher.Events.CHANGE_NOTIFICATION, partition, source));
+        source.on('initialScan', this.dispatch.bind(this, Dispatcher.Events.INITIAL_SCAN, tree, source));
+        source.on('deltaScan', this.dispatch.bind(this, Dispatcher.Events.DELTA_SCAN, tree, source));
+        source.on('change', this.dispatch.bind(this, Dispatcher.Events.CHANGE_NOTIFICATION, tree, source));
 
         // Load the source.
         return source.load()
@@ -42,16 +42,16 @@ class Dispatcher {
         });
     }
 
-    dispatch(eventType, partition, source, data) {
+    dispatch(eventType, tree, source, data) {
         switch (eventType) {
         case Dispatcher.Events.INITIAL_SCAN:
-            this._dispatchInitialScan(partition, source);
+            this._dispatchInitialScan(tree, source);
             break;
         case Dispatcher.Events.DELTA_SCAN:
-            this._dispatchDeltaScan(partition, source);
+            this._dispatchDeltaScan(tree, source);
             break;
         case Dispatcher.Events.CHANGE_NOTIFICATION:
-            this._dispatchChangeNotification(partition, source, data);
+            this._dispatchChangeNotification(tree, source, data);
             break;
         default:
             break;
@@ -77,40 +77,50 @@ class Dispatcher {
         }
     }
 
-    _dispatchInitialScan(partition, source) {
+    _dispatchInitialScan(tree, source) {
         this._queuedScans.push({
             source:    source,
-            partition: partition,
-            scanner:   Dispatcher._initialScan.bind(null, partition, source),
+            tree:      tree,
+            scanner:   Dispatcher._initialScan.bind(null, tree, source),
             changeLog: new ChangeLog(Dispatcher.CHANGELOG_MEMORY_LENGTH),
         });
         this._crankQueue();
     }
 
-    _dispatchDeltaScan(partition, source) {
+    _dispatchDeltaScan(tree, source) {
         this._queuedScans.push({
             source:    source,
-            partition: partition,
-            scanner:   Dispatcher._deltaScan.bind(null, partition, source),
+            tree:      tree,
+            scanner:   Dispatcher._deltaScan.bind(null, tree, source),
             changeLog: new ChangeLog(Dispatcher.CHANGELOG_MEMORY_LENGTH),
         });
         this._crankQueue();
     }
 
-    _dispatchChangeNotification(partition, source, data) {
+    _dispatchChangeNotification(tree, source, change) {
         if (this._activeScan && this._activeScan.source === source) {
-            this._activeScan.changeLog.append(data);
+            this._activeScan.changeLog.append(change);
         }
         else {
-            this._processChangeNotification(partition, source, data);
+            this._processChangeNotification(tree, source, change);
         }
     }
 
-    _processChangeNotification(partition, source, data) {
+    _processChangeNotification(tree, source, change) {
         const time = this._clock.vector;
-        this._clock.advance();
-        data.modify(time);
-        partition.put(data.path, data.serialize());
+
+        if (change.operation === 'upsert') {
+            change.entry.modify(time);
+            tree.put(change.path, change.entry.serialize());
+            this._clock.advance();
+        }
+        else if (change.operation === 'remove') {
+            tree.delSubTree(change.path);
+            this._clock.advance();
+        }
+        else {
+            debug(`Unknown change notification type: '${change.operation}'.`);
+        }
     }
 
     static _initialScan(tree, source, time) {
