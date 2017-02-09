@@ -5,18 +5,18 @@ class PathStack {
         this._stack = [];
     }
 
-    push(path, id) {
-        this._stack.push({ path: path, id: id });
+    push(path, id, deviceId) {
+        this._stack.push({ path: path, id: id, deviceId: deviceId });
         // debug(`Pushed: ${path}`);
     }
 
-    interogatePath(fullPath) {
+    interogatePath(testPath) {
         while (this._stack.length > 0) {
             const current = this._stack[this._stack.length - 1];
             const currentPath = (current && current.path) || '';
 
-            if (!fullPath.startsWith(currentPath)) {
-                const popped = this._stack.pop();
+            if (!testPath.startsWith(currentPath)) {
+                this._stack.pop();
                 // debug(`Popping: ${popped.path}`);
             }
             else {
@@ -25,8 +25,8 @@ class PathStack {
         }
     }
 
-    attempt(toId) {
-        return this._stack.find(level => level.id === toId);
+    attempt(targetId, targetDeviceId) {
+        return this._stack.find(level => (level.id === targetId) && (level.deviceId === targetDeviceId));
     }
 }
 

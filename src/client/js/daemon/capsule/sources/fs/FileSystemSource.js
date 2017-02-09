@@ -4,6 +4,7 @@ const fs = require('original-fs');
 const Source = require('../Source.js');
 const IntegralScanner = require('./IntegralScanner.js');
 const DeltaScanner = require('./DeltaScanner.js');
+const Watcher = require('./Watcher.js');
 const { FilterSet } = require('../../FilterSet.js');
 
 class FileSystemSource extends Source {
@@ -36,20 +37,30 @@ class FileSystemSource extends Source {
                 }
                 // Loaded successfully.
                 else {
-                    debug(`[${this._id}] Loaded successfully!`);
-                    // Complete the load.
-                    resolve();
-                    // Check if there was an initial scan in a new thread to allow the load thread
-                    // to complete.
-                    process.nextTick(() => {
-                        if (this.lastScan === null) {
-                            debug(`[${this._id}] Source has never been scanned before.`);
-                            this.emit('initialScan');
-                        }
-                        else {
-                            debug(`[${this._id}] Source was last scanned ${this.lastScan}.`);
-                            this.emit('deltaScan');
-                        }
+                    debug(`[${this._id}] ${this._root} exists!`);
+                    debug(`[${this._id}] Starting notification service...`);
+
+                    this._watcher = new Watcher(this._root, { followLinks: true });
+                    this._watcher.change = changes => this.emit('change', changes);
+                    this._watcher.load().then(() => {
+                        debug(`[${this._id}] Notification service started successfully!`);
+                        debug(`[${this._id}] FileSystemSource loaded successfully!`);
+
+                        // Complete the load.
+                        resolve();
+
+                        // Check if there was an initial scan in a new thread to allow the load thread
+                        // to complete.
+                        process.nextTick(() => {
+                            if (this.lastScan === null) {
+                                debug(`[${this._id}] Source has never been scanned before.`);
+                                this.emit('initialScan');
+                            }
+                            else {
+                                debug(`[${this._id}] Source was last scanned ${this.lastScan}.`);
+                                this.emit('deltaScan');
+                            }
+                        });
                     });
                 }
             });

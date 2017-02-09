@@ -102,7 +102,7 @@ class IntegralScanner {
 
                 // Following links makes us liable to creating infinite loops. Therefore, if for the given traversal
                 // path we back track in such a way it'll lead us down the same path, create a link.
-                const level = this._pathStack.attempt(link.linkedStat.ino);
+                const level = this._pathStack.attempt(link.linkedStat.ino, link.linkStat.dev);
 
                 if (level != null) {
                     debug(`Link cycle: '${linkPath}' -> '${level.path}' detected. Ignoring further recursion.`);
@@ -209,7 +209,7 @@ class IntegralScanner {
     _traverseSubTree(dirPath, done) {
         fs.stat(dirPath, (err, dirStat) => {
             if (!err) {
-                this._pathStack.push(dirPath, dirStat.ino);
+                this._pathStack.push(dirPath, dirStat.ino, dirStat.dev);
                 this._getDirectoryContents(dirPath, dirStat, done);
             }
             else {

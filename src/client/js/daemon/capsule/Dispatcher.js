@@ -1,6 +1,7 @@
 const debug = require('debug')('Capsule.Dispatcher');
 
 const ChangeLog = require('./ChangeLog.js');
+const Watcher = require('./sources/fs/Watcher.js');
 
 class Dispatcher {
 
@@ -97,22 +98,45 @@ class Dispatcher {
         this._crankQueue();
     }
 
-    _dispatchChangeNotification(tree, source, change) {
+    _dispatchChangeNotification(tree, source, changes) {
         if (this._activeScan && this._activeScan.source === source) {
-            this._activeScan.changeLog.append(change);
+            this._activeScan.changeLog.append(changes);
         }
         else {
-            this._processChangeNotification(tree, source, change);
+            this._processChangeNotifications(tree, source, changes);
         }
     }
 
-    _processChangeNotification(tree, source, change) {
+    _processChangeNotifications(tree, source, changes) {
         const time = this._clock.vector;
 
+        // Advance the clock once.
+        this._clock.advance();
+
+        changes.forEach((change) => {
+            switch (change.action) {
+            case Watcher.Actions.ADD_ENTRY:
+                debug(`Change Notification: Add '${change.entry.path}'.`);
+                break;
+            case Watcher.Actions.SCAN_PATH:
+                debug(`Change Notification: Scan '${change.path}'.`);
+                break;
+            case Watcher.Actions.UPDATE:
+                debug(`Change Notification: Update '${change.path}'.`);
+                break;
+            case Watcher.Actions.MOVE:
+                debug(`Change Notification: Move '${change.from}' -> '${change.to}'.`);
+                break;
+            case Watcher.Actions.REMOVE:
+                debug(`Change Notification: Remove '${change.path}'.`);
+                break;
+            }
+        });
+
+        /*
         if (change.operation === 'upsert') {
             change.entry.modify(time);
             tree.put(change.path, change.entry.serialize());
-            this._clock.advance();
         }
         else if (change.operation === 'remove') {
             tree.delSubTree(change.path);
@@ -121,6 +145,7 @@ class Dispatcher {
         else {
             debug(`Unknown change notification type: '${change.operation}'.`);
         }
+        */
     }
 
     static _initialScan(tree, source, time) {

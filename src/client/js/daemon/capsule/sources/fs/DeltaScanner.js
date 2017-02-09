@@ -152,7 +152,7 @@ class DeltaScanner {
             if (this._options.followLinks) {
                 // Following links makes us liable to creating infinite loops. Therefore, if for the given traversal
                 // path we back track in such a way it'll lead us down the same path, create a link.
-                const level = this._pathStack.attempt(link.linkedStat.ino);
+                const level = this._pathStack.attempt(link.linkedStat.ino, link.linkedStat.dev);
 
                 if (level != null) {
                     debug(`Link cycle: '${path}' -> '${level.path}' detected. Ignoring further recursion.`);
@@ -282,7 +282,7 @@ class DeltaScanner {
                     if (type === CapsuleEntry.Type.DIRECTORY) {
                         this._pathStack.interogatePath(path);
                         if (!err) {
-                            this._pathStack.push(path, stat.ino);
+                            this._pathStack.push(path, stat.ino, stat.dev);
                         }
                     }
 
