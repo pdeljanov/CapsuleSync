@@ -1,7 +1,7 @@
 const debug = require('debug')('Capsule.Dispatcher');
 
 const ChangeLog = require('./ChangeLog.js');
-const Watcher = require('./sources/fs/Watcher.js');
+const Source = require('./sources/Source.js');
 
 class Dispatcher {
 
@@ -108,44 +108,30 @@ class Dispatcher {
     }
 
     _processChangeNotifications(tree, source, changes) {
-        const time = this._clock.vector;
+        const pathsToScan = [];
 
         // Advance the clock once.
         this._clock.advance();
 
         changes.forEach((change) => {
             switch (change.action) {
-            case Watcher.Actions.ADD_ENTRY:
-                debug(`Change Notification: Add '${change.entry.path}'.`);
+            case Source.Actions.UPSERT:
+                debug(`Change Notification: Upsert '${change.entry.path}'.`);
                 break;
-            case Watcher.Actions.SCAN_PATH:
-                debug(`Change Notification: Scan '${change.path}'.`);
+            case Source.Actions.SCAN_PATH:
+                debug(`Change Notification: Scan '${change.fullPath}'.`);
+                pathsToScan.push(change.path);
                 break;
-            case Watcher.Actions.UPDATE:
-                debug(`Change Notification: Update '${change.path}'.`);
-                break;
-            case Watcher.Actions.MOVE:
-                debug(`Change Notification: Move '${change.from}' -> '${change.to}'.`);
-                break;
-            case Watcher.Actions.REMOVE:
+            case Source.Actions.REMOVE_IF:
                 debug(`Change Notification: Remove '${change.path}'.`);
+                break;
+            default:
                 break;
             }
         });
 
-        /*
-        if (change.operation === 'upsert') {
-            change.entry.modify(time);
-            tree.put(change.path, change.entry.serialize());
-        }
-        else if (change.operation === 'remove') {
-            tree.delSubTree(change.path);
-            this._clock.advance();
-        }
-        else {
-            debug(`Unknown change notification type: '${change.operation}'.`);
-        }
-        */
+        // Dispatch a delta scan to handle scan requests.
+        // this._dispatchDeltaScan(tree, source, pathsToScan);
     }
 
     static _initialScan(tree, source, time) {

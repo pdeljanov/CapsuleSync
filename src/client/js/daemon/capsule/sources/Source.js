@@ -28,4 +28,10 @@ Source.ERRORS = {
     DOES_NOT_EXIST: 'DoesNotExist',
 };
 
+Source.Actions = {
+    UPSERT:    0,
+    SCAN_PATH: 1,
+    REMOVE_IF: 2,
+};
+
 module.exports = Source;
