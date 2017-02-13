@@ -126,6 +126,7 @@ class Dispatcher {
                 debug(`Change Notification: Remove '${change.path}'.`);
                 break;
             default:
+                debug(`Unknown change notification received. Action #${change.action}.`);
                 break;
             }
         });

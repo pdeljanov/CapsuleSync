@@ -99,7 +99,7 @@ class DeltaScanner {
         this.progress(this.stats());
     }
 
-    _addFile(path, relativePath, stat, done) {
+    _addFile(relativePath, stat, done) {
         const file = FileEntry.makeFromStat(relativePath, stat);
         if (this.filter(file)) {
             this.upsert(file);
@@ -134,7 +134,7 @@ class DeltaScanner {
         scanner.run(this._pathStack)
             .then(done)
             .catch(() => {
-                debug(`Failed to scan: ${path}.`);
+                debug(`Failed to scan: '${path}'.`);
                 done();
             });
     }
@@ -148,7 +148,7 @@ class DeltaScanner {
     _addSymlink(path, relativePath, stat, done) {
         // Resolve the link.
         Link.resolve(path).then((link) => {
-            // If following links, insert an entry appropriate with the linked type.
+            // If following links, insert an entry appropriate for the linked type.
             if (this._options.followLinks) {
                 // Following links makes us liable to creating infinite loops. Therefore, if for the given traversal
                 // path we back track in such a way it'll lead us down the same path, create a link.
@@ -161,27 +161,26 @@ class DeltaScanner {
                 }
                 // File.
                 else if (link.linkedStat.isFile()) {
-                    return this._addFile(path, relativePath, link.linkedStat, done);
+                    return this._addFile(relativePath, link.linkedStat, done);
                 }
                 // Directory.
                 else if (link.linkedStat.isDirectory()) {
                     return this._addDirectory(path, done);
                 }
 
-                // Neither.
-                debug(`Linked: ${link.linkedPath} is neither a file, or directory. Ignoring.`);
+                // Neither a file nor directory, therefore ignore.
+                debug(`Linked: '${link.linkedPath}' is neither a file, or directory. Ignoring.`);
                 this._numIgnored += 1;
             }
             // If not following links, insert a link entry.
             else {
-                this.upsert(LinkEntry.makeFromStat(relativePath, link.linkedPath, stat));
-                this._addedSoftLinks += 1;
+                return this._addUnfollowedSymlink(relativePath, link.linkedPath, stat, done);
             }
 
             return done();
         })
         .catch((resolveErr) => {
-            debug(`Failed to resolve link: ${path} due to error: ${resolveErr.code}.`);
+            debug(`Failed to resolve link: '${path}' due to error: ${resolveErr.code}.`);
             this._errors += 1;
             done();
         });
@@ -195,29 +194,28 @@ class DeltaScanner {
 
                     // File addition.
                     if (stat.isFile()) {
-                        this._addFile(path, relativePath, stat, next);
+                        return this._addFile(relativePath, stat, next);
                     }
                     // Directory addition.
                     else if (stat.isDirectory()) {
-                        this._addDirectory(path, next);
+                        return this._addDirectory(path, next);
                     }
                     // Link addition.
                     else if (stat.isSymbolicLink()) {
-                        this._addSymlink(path, relativePath, stat, next);
+                        return this._addSymlink(path, relativePath, stat, next);
                     }
+
                     // Not a file, directory, or link.
-                    else {
-                        debug(`Path: ${path} is neither a file, directory, nor link. Ignoring.`);
-                        this._errors += 1;
-                        next();
-                    }
+                    debug(`Path: '${path}' is neither a file, directory, nor link. Ignoring.`);
+                    this._errors += 1;
                 }
                 // Error in stating the path.
                 else {
-                    debug(`Failed to stat: ${path} with error: ${err.code}.`);
+                    debug(`Failed to stat: '${path}' with error: ${err.code}.`);
                     this._errors += 1;
-                    next();
                 }
+
+                return next();
             });
         },
         () => {
@@ -236,7 +234,7 @@ class DeltaScanner {
             done(added.map(item => PathTools.appendRoot(path, item)));
         })
         .catch((err) => {
-            debug(`Could not scan directory at: ${relativePath} due to error: ${err.code}.`);
+            debug(`Could not scan directory at: '${relativePath}' due to error: ${err.code}.`);
             done();
         });
     }
@@ -302,7 +300,7 @@ class DeltaScanner {
                             this.remove(relativePath);
                         }
                         else {
-                            debug(`Unexpected error: ${err.code} at: ${relativePath}`);
+                            debug(`Unexpected error: ${err.code} at: '${relativePath}'.`);
                             this._errors += 1;
                         }
                         return next();

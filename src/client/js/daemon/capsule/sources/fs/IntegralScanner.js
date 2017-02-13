@@ -92,49 +92,72 @@ class IntegralScanner {
         this.progress(this.stats());
     }
 
+    _descend(childPath, done) {
+        this._traversalStack.push(childPath);
+        done();
+    }
+
+    _addFile(relativePath, stat, done) {
+        const entry = FileEntry.makeFromStat(relativePath, stat);
+        if (this.filter(entry)) {
+            this._numFiles += 1;
+            this._numBytes += stat.size;
+            this.insert(entry);
+        }
+        done();
+    }
+
+    _addDirectory(relativePath, stat, done) {
+        const entry = DirectoryEntry.makeFromStat(relativePath, stat);
+        this.insert(entry);
+        done();
+    }
+
+    _addUnfollowedSymlink(relativePath, relativeLinkedPath, linkStat, done) {
+        this._addedSoftLinks += 1;
+        const entry = LinkEntry.makeFromStat(relativePath, relativeLinkedPath, linkStat);
+        this.insert(entry);
+        done();
+    }
+
     _getLinkChild(linkPath, linkStat, done) {
         // If this is a link, it must be resolved BEFORE calling the
         // next callback to avoid race conditions.
         Link.resolve(linkPath).then((link) => {
-            // If following links...
-            if (this._options.followLinks) {
-                const relativePath = PathTools.stripRoot(linkPath, this.root);
+            const relativePath = PathTools.stripRoot(linkPath, this.root);
 
+            // If following links, insert an entry appropriate for the linked type.
+            if (this._options.followLinks) {
                 // Following links makes us liable to creating infinite loops. Therefore, if for the given traversal
                 // path we back track in such a way it'll lead us down the same path, create a link.
-                const level = this._pathStack.attempt(link.linkedStat.ino, link.linkStat.dev);
+                const level = this._pathStack.attempt(link.linkedStat.ino, link.linkedStat.dev);
 
                 if (level != null) {
                     debug(`Link cycle: '${linkPath}' -> '${level.path}' detected. Ignoring further recursion.`);
-                    this._numSoftLinks += 1;
                     const relativeLinkPath = PathTools.stripRoot(level.path, this.root);
-                    // this.insert(WeakLinkEntry.makeFromStat(relativePath, relativeLinkPath, linkStat));
-                    this.insert(LinkEntry.makeFromStat(relativePath, relativeLinkPath, linkStat));
+                    return this._addUnfollowedSymlink(relativePath, relativeLinkPath, linkStat, done);
                 }
-                // If a directory is linked, push the linked path to the work queue.
+                // Directory.
                 else if (link.linkedStat.isDirectory()) {
-                    this._traversalStack.push(linkPath);
-                    this.insert(DirectoryEntry.makeFromStat(relativePath, link.linkedStat));
+                    return this._addDirectory(relativePath, link.linkedStat, () => {
+                        this._descend(linkPath, done);
+                    });
                 }
-                // If a file is linked, count the file and swap stat information.
+                // File.
                 else if (link.linkedStat.isFile()) {
-                    this._numFiles += 1;
-                    this._numBytes += link.linkedStat.size;
-                    this.insert(FileEntry.makeFromStat(relativePath, link.linkedStat));
+                    return this._addFile(relativePath, link.linkedStat, done);
                 }
+
                 // Neither a file nor directory, therefore ignore.
-                else {
-                    debug(`Linked: '${link.linkedPath}' is neither a file, or directory. Ignoring.`);
-                    this._ignored += 1;
-                }
-                done();
+                debug(`Linked: '${link.linkedPath}' is neither a file, or directory. Ignoring.`);
+                this._ignored += 1;
             }
-            // If not following links. Append the linkedPath to the child
-            // content.
+            // If not following links, insert a link entry.
             else {
-                this.insert(LinkEntry.makeFromStat(linkPath, linkStat, link.linkedPath));
-                done();
+                return this._addUnfollowedSymlink(relativePath, link.linkedPath, linkStat, done);
             }
+
+            return done();
         })
         .catch((err) => {
             debug(`Failed to resolve link: '${linkPath}' due to error: ${err.code}.`);
@@ -156,36 +179,28 @@ class IntegralScanner {
                 if (!err) {
                     // Count # of files and total byteLength.
                     if (childStat.isFile()) {
-                        this._numFiles += 1;
-                        this._numBytes += childStat.size;
-                        this.insert(FileEntry.makeFromStat(PathTools.stripRoot(childPath, this.root), childStat));
-                        next();
+                        const relativePath = PathTools.stripRoot(childPath, this.root);
+                        return this._addFile(relativePath, childStat, next);
                     }
                     // Count # of directories, and queue a task to travese into it.
                     else if (childStat.isDirectory()) {
-                        this._traversalStack.push(childPath);
-                        next();
+                        return this._descend(childPath, next);
                     }
                     // Count # of links, and follow the link to queue a task to traverse it.
                     else if (childStat.isSymbolicLink()) {
-                        if (!this._options.followLinks) {
-                            this._numSoftLinks += 1;
-                        }
+                        return this._getLinkChild(childPath, childStat, next);
+                    }
 
-                        this._getLinkChild(childPath, childStat, next);
-                    }
-                    else {
-                        // Not a file, directory, nor link.
-                        debug(`Path: '${childPath}' is neither a file, directory, nor link. Ignoring.`);
-                        this._ignored += 1;
-                        next();
-                    }
+                    // Not a file, directory, nor link.
+                    debug(`Path: '${childPath}' is neither a file, directory, nor link. Ignoring.`);
+                    this._ignored += 1;
                 }
                 else {
                     debug(`Failed to stat: '${childPath}' with error: ${err.code}.`);
                     this._errors += 1;
-                    next();
                 }
+
+                return next();
             });
         },
         () => {

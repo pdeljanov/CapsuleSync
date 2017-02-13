@@ -1,5 +1,3 @@
-'use strict';
-
 const assert = require('assert');
 
 class ExpressionTree {
@@ -46,7 +44,7 @@ class ExpressionTree {
 ExpressionTree.Deserializers = {};
 
 class Operand {
-    get() {
+    evaluate() {
         return false;
     }
 
@@ -65,7 +63,7 @@ class Operator {
         this._right = right;
     }
 
-    evaluate(input) {
+    evaluate() {
         return true;
     }
 }
@@ -91,7 +89,7 @@ class EqualOperator extends Operator {
         return new EqualOperator(ExpressionTree.deserialize(nodes[0], operandFactory));
     }
 }
-ExpressionTree.Deserializers['eq'] = EqualOperator.deserialize;
+ExpressionTree.Deserializers.eq = EqualOperator.deserialize;
 
 
 class NotEqualOperator extends Operator {
@@ -115,7 +113,7 @@ class NotEqualOperator extends Operator {
         return new NotEqualOperator(ExpressionTree.deserialize(nodes[0], operandFactory));
     }
 }
-ExpressionTree.Deserializers['not'] = NotEqualOperator.deserialize;
+ExpressionTree.Deserializers.not = NotEqualOperator.deserialize;
 
 
 class AndOperator extends Operator {
@@ -127,7 +125,7 @@ class AndOperator extends Operator {
         return { and: [this._left.serialize(), this._right.serialize()] };
     }
 
-    static deserialize(nodes, operandFactory){
+    static deserialize(nodes, operandFactory) {
         assert(nodes.length === 2, 'AndOperator requires 2 nodes.');
         return new AndOperator(
             ExpressionTree.deserialize(nodes[0], operandFactory),
@@ -135,7 +133,7 @@ class AndOperator extends Operator {
         );
     }
 }
-ExpressionTree.Deserializers['and'] = AndOperator.deserialize;
+ExpressionTree.Deserializers.and = AndOperator.deserialize;
 
 
 class OrOperator extends Operator {
@@ -155,7 +153,7 @@ class OrOperator extends Operator {
         );
     }
 }
-ExpressionTree.Deserializers['or'] = OrOperator.deserialize;
+ExpressionTree.Deserializers.or = OrOperator.deserialize;
 
 
 module.exports = {
