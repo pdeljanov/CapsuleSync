@@ -27,6 +27,7 @@ class DeltaScanner {
         this.upsert = (() => {});
         this.remove = (() => {});
         this.commit = (() => Promise.resolve());
+        this.exclude = (() => false);
         this.filter = (() => true);
 
         this._resetStats();
@@ -99,49 +100,79 @@ class DeltaScanner {
         this.progress(this.stats());
     }
 
+    _removeCount(type) {
+        switch (type) {
+        case CapsuleEntry.Type.DIRECTORY:
+            this._removedDirectories += 1;
+            break;
+        case CapsuleEntry.Type.FILE:
+            this._removedFiles += 1;
+            break;
+        case CapsuleEntry.Type.LINK:
+            this._removedSoftLinks += 1;
+            break;
+        default:
+            break;
+        }
+    }
+
+    _remove(relativePath, type) {
+        this._removeCount(type);
+        this.remove(relativePath);
+    }
+
     _addFile(relativePath, stat, done) {
-        const file = FileEntry.makeFromStat(relativePath, stat);
-        if (this.filter(file)) {
-            this.upsert(file);
+        const entry = FileEntry.makeFromStat(relativePath, stat);
+        if (this.filter(entry)) {
+            this.upsert(entry);
             this._addedFiles += 1;
         }
         done();
     }
 
     _addDirectory(path, done) {
-        const adjustedRoot = PathTools.stripRoot(path, this._root);
+        if (!this.exclude(path)) {
+            const adjustedRoot = PathTools.stripRoot(path, this._root);
 
-        const scanner = new IntegralScanner(path, this._options);
+            const scanner = new IntegralScanner(path, this._options);
 
-        scanner.insert = (entry) => {
-            entry.path = PathTools.appendRoot(adjustedRoot, entry.path);
-            this.upsert(entry);
-        };
+            scanner.insert = (entry) => {
+                entry.path = PathTools.appendRoot(adjustedRoot, entry.path);
+                this.upsert(entry);
+            };
 
-        let last = scanner.stats();
-        scanner.progress = (p) => {
-            this._addedFiles += (p.files - last.files);
-            this._addedDirectories += (p.directories - last.directories);
-            this._addedSoftLinks += (p.softLinks - last.softLinks);
-            this._numIgnored += (p.ignored - last.ignored);
-            this._errors += (p.errors - last.errors);
-            last = p;
-        };
+            let last = scanner.stats();
+            scanner.progress = (p) => {
+                this._addedFiles += (p.files - last.files);
+                this._addedDirectories += (p.directories - last.directories);
+                this._addedSoftLinks += (p.softLinks - last.softLinks);
+                this._numIgnored += (p.ignored - last.ignored);
+                this._errors += (p.errors - last.errors);
+                last = p;
+            };
 
-        scanner.filter = this.filter;
-        scanner.commit = this.commit;
+            scanner.exclude = this.exclude;
+            scanner.filter = this.filter;
+            scanner.commit = this.commit;
 
-        scanner.run(this._pathStack)
-            .then(done)
-            .catch(() => {
-                debug(`Failed to scan: '${path}'.`);
-                done();
-            });
+            scanner.run(this._pathStack)
+                .then(done)
+                .catch(() => {
+                    debug(`Failed to scan: '${path}'.`);
+                    done();
+                });
+        }
+        else {
+            done();
+        }
     }
 
     _addUnfollowedSymlink(path, linkedPath, linkStat, done) {
-        this._addedSoftLinks += 1;
-        this.upsert(LinkEntry.makeFromStat(path, linkedPath, linkStat));
+        const entry = LinkEntry.makeFromStat(path, linkedPath, linkStat);
+        if (this.filter(entry)) {
+            this._addedSoftLinks += 1;
+            this.upsert(entry);
+        }
         done();
     }
 
@@ -253,24 +284,14 @@ class DeltaScanner {
                 const relativePath = data.key;
                 const path = PathTools.appendRoot(this._root, relativePath);
                 const type = CapsuleEntry.getType(data.value);
+                const entry = CapsuleEntry.deserialize(relativePath, data.value);
 
                 this._scanned += 1;
 
                 // If the current path is prefixed with the last previously deleted directory path,
                 // may be safely skipped as it would be considered deleted.
                 if (lastRemovedPrefix && path.startsWith(lastRemovedPrefix)) {
-                    switch (type) {
-                    case CapsuleEntry.Type.DIRECTORY:
-                        this._removedDirectories += 1;
-                        break;
-                    case CapsuleEntry.Type.FILE:
-                        this._removedFiles += 1;
-                        break;
-                    case CapsuleEntry.Type.LINK:
-                        this._removedSoftLinks += 1;
-                        break;
-                    default:
-                    }
+                    this._removeCount(type);
                     return next();
                 }
 
@@ -282,30 +303,31 @@ class DeltaScanner {
                         if (!err) {
                             this._pathStack.push(path, stat.ino, stat.dev);
                         }
+                        else {
+                            lastRemovedPrefix = path;
+                        }
                     }
 
+                    // Removal due to deletion, or error.
                     if (err) {
-                        // Deletion.
-                        if (err.code === 'ENOENT') {
-                            if (type === CapsuleEntry.Type.DIRECTORY) {
-                                lastRemovedPrefix = path;
-                                this._removedDirectories += 1;
-                            }
-                            else if (type === CapsuleEntry.Type.FILE) {
-                                this._removedFiles += 1;
-                            }
-                            else if (type === CapsuleEntry.Type.LINK) {
-                                this._removedSoftLinks += 1;
-                            }
-                            this.remove(relativePath);
-                        }
-                        else {
+                        if (err.code !== 'ENOENT') {
                             debug(`Unexpected error: ${err.code} at: '${relativePath}'.`);
                             this._errors += 1;
                         }
-                        return next();
+
+                        this._remove(relativePath, type);
                     }
-                    else if (!err) {
+                    // Directory removal due to exclusion.
+                    else if (type === CapsuleEntry.Type.DIRECTORY && this.exclude(path)) {
+                        lastRemovedPrefix = path;
+                        this._remove(relativePath, type);
+                    }
+                    // File or link removal due to filter.
+                    else if (type !== CapsuleEntry.Type.DIRECTORY && !this.filter(entry)) {
+                        this._remove(relativePath, type);
+                    }
+                    // Update.
+                    else {
                         // File update.
                         if (stat.isFile() && type === CapsuleEntry.Type.FILE) {
                             const file = FileEntry.makeFromSerialization(relativePath, data.value);
@@ -351,7 +373,7 @@ class DeltaScanner {
                                 }
                                 // Path is not actually a link.
                                 else {
-                                    this.remove(relativePath);
+                                    this._remove(relativePath, type);
                                 }
 
                                 return next();
@@ -374,8 +396,9 @@ class DeltaScanner {
                         }
 
                         // Type mismatch. Remove database entry.
-                        this.remove(relativePath);
+                        this._remove(relativePath, type);
                     }
+
                     return next();
                 });
             })

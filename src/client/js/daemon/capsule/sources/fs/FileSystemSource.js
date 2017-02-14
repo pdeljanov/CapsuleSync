@@ -90,6 +90,7 @@ class FileSystemSource extends Source {
 
     applyFilter(filters) {
         this.filters = filters;
+        this.emit('deltaScan');
     }
 
     unload() {

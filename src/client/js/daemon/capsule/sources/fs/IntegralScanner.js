@@ -30,6 +30,7 @@ class IntegralScanner {
         this.progress = () => {};
         this.insert = (() => {});
         this.commit = (() => Promise.resolve());
+        this.exclude = (() => false);
         this.filter = (() => true);
 
         this._pathStack = null;
@@ -93,7 +94,9 @@ class IntegralScanner {
     }
 
     _descend(childPath, done) {
-        this._traversalStack.push(childPath);
+        if (!this.exclude(childPath)) {
+            this._traversalStack.push(childPath);
+        }
         done();
     }
 
@@ -107,20 +110,22 @@ class IntegralScanner {
         done();
     }
 
-    _addDirectory(relativePath, stat, done) {
+    _addDirectory(relativePath, stat) {
+        this._numDirectories += 1;
         const entry = DirectoryEntry.makeFromStat(relativePath, stat);
         this.insert(entry);
-        done();
     }
 
     _addUnfollowedSymlink(relativePath, relativeLinkedPath, linkStat, done) {
-        this._addedSoftLinks += 1;
         const entry = LinkEntry.makeFromStat(relativePath, relativeLinkedPath, linkStat);
-        this.insert(entry);
+        if (this.filter(entry)) {
+            this._addedSoftLinks += 1;
+            this.insert(entry);
+        }
         done();
     }
 
-    _getLinkChild(linkPath, linkStat, done) {
+    _addSymlink(linkPath, linkStat, done) {
         // If this is a link, it must be resolved BEFORE calling the
         // next callback to avoid race conditions.
         Link.resolve(linkPath).then((link) => {
@@ -139,9 +144,7 @@ class IntegralScanner {
                 }
                 // Directory.
                 else if (link.linkedStat.isDirectory()) {
-                    return this._addDirectory(relativePath, link.linkedStat, () => {
-                        this._descend(linkPath, done);
-                    });
+                    return this._descend(linkPath, done);
                 }
                 // File.
                 else if (link.linkedStat.isFile()) {
@@ -169,8 +172,7 @@ class IntegralScanner {
     }
 
     _getDirectoryContentsStat(dirPath, dirStat, childPaths, done) {
-        this._numDirectories += 1;
-        this.insert(DirectoryEntry.makeFromStat(PathTools.stripRoot(dirPath, this.root), dirStat));
+        this._addDirectory(PathTools.stripRoot(dirPath, this.root), dirStat);
 
         async.eachLimit(childPaths, this._options.numJobs, (childName, next) => {
             const childPath = path.join(dirPath, childName);
@@ -188,7 +190,7 @@ class IntegralScanner {
                     }
                     // Count # of links, and follow the link to queue a task to traverse it.
                     else if (childStat.isSymbolicLink()) {
-                        return this._getLinkChild(childPath, childStat, next);
+                        return this._addSymlink(childPath, childStat, next);
                     }
 
                     // Not a file, directory, nor link.
@@ -256,15 +258,14 @@ class IntegralScanner {
                 else {
                     this._endStats();
 
-                    this._traverse = null;
+                    this._pathStack = null;
                     this._traversalStack = [];
 
                     resolve();
                 }
             };
 
-            this._traversalStack.push(root);
-            runNext();
+            this._descend(root, runNext);
         });
     }
 
