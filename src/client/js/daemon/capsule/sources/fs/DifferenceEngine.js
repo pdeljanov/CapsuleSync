@@ -7,7 +7,45 @@ const Directory = require('../../../fs/Directory.js');
 const Link = require('../../../fs/Link.js');
 const { FileEntry, LinkEntry, DirectoryEntry, CapsuleEntry } = require('../../CapsuleEntry.js');
 
+// DifferenceEngine(database, diskRoot, options).entry(path, databaseItem, done)
+//                                              .path(path, done)
+
 class DifferenceEngine {
+
+    constructor(tree, root, options) {
+        this._tree = tree;
+        this._root = root;
+
+        this._options = {
+            directoryAdds:    true,
+            directoryRemoves: true,
+            followLinks:      (options && options.followLinks) || (!options && true),
+            concurrency:      (options && options.concurrency) || (!options && 8),
+        };
+
+        if (options && options.directoryCheck) {
+            switch (options.directoryCheck) {
+            case DifferenceEngine.DirectoryCheck.ADD:
+                this._options.directoryRemoves = false;
+                break;
+            case DifferenceEngine.DirectoryCheck.REMOVE:
+                this._options.directoryAdds = false;
+                break;
+            case DifferenceEngine.DirectoryCheck.NONE:
+                this._options.directoryRemoves = false;
+                this._options.directoryAdds = false;
+                break;
+            default:
+                break;
+            }
+        }
+
+        this._add = (options && options.add) ? options.add.bind(this) : (() => {});
+        this._remove = (options && options.remove) ? options.remove.bind(this) : (() => {});
+        this._update = (options && options.update) ? options.update.bind(this) : (() => {});
+        this._error = (options && options.error) ? options.error.bind(this) : (() => {});
+        this._ignore = (options && options.ignore) ? options.ignore.bind(this) : (() => {});
+    }
 
     _addSymlink(path, relativePath, stat, done) {
         // Resolve the link.
