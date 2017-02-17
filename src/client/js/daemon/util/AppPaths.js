@@ -1,8 +1,28 @@
-const electron = require('electron')
+const electron = require('electron');
 const app = electron.app || electron.remote.app;
 const path = require('path');
+const fs = require('fs');
 
 class AppPaths {
+
+    static _ensurePath(fullPath) {
+        return new Promise((resolve, reject) => {
+            fs.mkdir(fullPath, (err) => {
+                if (!err || (err && err.code === 'EEXIST')) {
+                    resolve();
+                }
+                else {
+                    reject(err);
+                }
+            });
+        });
+    }
+
+    static ensurePaths() {
+        return AppPaths._ensurePath(AppPaths.configRoot())
+            .then(() => AppPaths._ensurePath(AppPaths.capsuleRoot()))
+            .then(() => AppPaths._ensurePath(AppPaths.transcodedRoot()));
+    }
 
     static configRoot() {
         if (!AppPaths._configurationRoot) {

@@ -78,7 +78,7 @@ class File {
     isIdentical(stat) {
         if (stat.size === this.blob.byteLength &&
             stat.mtime.getTime() === this.blob.modificationTime.getTime() &&
-            stat.ctime.getTime() === this.blob.creationTime.getTime() &&
+            stat.birthtime.getTime() === this.blob.creationTime.getTime() &&
             stat.uid === this.blob.uid &&
             stat.gid === this.blob.gid &&
             stat.mode === this.blob.mode &&

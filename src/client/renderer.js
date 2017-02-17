@@ -1,5 +1,6 @@
 const debug = require('debug')('Main');
 
+const AppPaths = require('./js/daemon/util/AppPaths.js');
 const Config = require('./js/daemon/Config.js');
 const Device = require('./js/daemon/Device.js');
 const Capsule = require('./js/daemon/capsule/Capsule.js');
@@ -26,7 +27,8 @@ function setup() {
     debug(`Version ${VERSION}`);
     debug(`Started at ${Date()}`);
 
-    config.get('setupRun')
+    AppPaths.ensurePaths()
+        .then(() => config.get('setupRun'))
         .then((setupRun) => {
             if (!setupRun) {
                 debug('Running first time setup.');
