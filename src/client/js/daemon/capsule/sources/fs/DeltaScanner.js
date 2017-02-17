@@ -270,145 +270,169 @@ class DeltaScanner {
         });
     }
 
-    run() {
+    _seekTo(fullPath) {
         return new Promise((resolve, reject) => {
-            let lastRemovedPrefix = '';
+            if (fullPath === this._root) {
+                return resolve();
+            }
 
             const getStat = this._options.followLinks ? fs.stat : fs.lstat;
+            const traverse = PathTools.getTraversalPath(fullPath);
 
-            this._pathStack = new PathStack();
+            return async.map(traverse, getStat, (err, stats) => {
+                if (!err) {
+                    stats.forEach((stat, i) => this._pathStack.push(traverse[i], stat.ino, stat.dev));
+                    resolve();
+                }
+                else {
+                    debug(`Could not seek to directory: '${fullPath}' due to error: ${err.code}.`);
+                    reject(err);
+                }
+            });
+        });
+    }
 
-            this._startStats();
+    _scanSubTree(fullPath) {
+        let lastRemovedPrefix = '';
 
-            this._tree.scanSubTree('/', (data, next) => {
-                const relativePath = data.key;
-                const path = PathTools.appendRoot(this._root, relativePath);
-                const type = CapsuleEntry.getType(data.value);
-                const entry = CapsuleEntry.deserialize(relativePath, data.value);
+        const getStat = this._options.followLinks ? fs.stat : fs.lstat;
 
-                this._scanned += 1;
+        const subTreePath = PathTools.stripRoot(fullPath, this._root);
 
-                // If the current path is prefixed with the last previously deleted directory path,
-                // may be safely skipped as it would be considered deleted.
-                if (lastRemovedPrefix && path.startsWith(lastRemovedPrefix)) {
-                    this._removeCount(type);
-                    return next();
+        return this._tree.scanSubTree(subTreePath, (data, next) => {
+            const relativePath = data.key;
+            const path = PathTools.appendRoot(this._root, relativePath);
+            const type = CapsuleEntry.getType(data.value);
+            const entry = CapsuleEntry.deserialize(relativePath, data.value);
+
+            this._scanned += 1;
+
+            // If the current path is prefixed with the last previously deleted directory path,
+            // may be safely skipped as it would be considered deleted.
+            if (lastRemovedPrefix && path.startsWith(lastRemovedPrefix)) {
+                this._removeCount(type);
+                return next();
+            }
+
+            // Get the stat information for the item being scanned.
+            return getStat(path, (err, stat) => {
+                // Update the path stack.
+                if (type === CapsuleEntry.Type.DIRECTORY) {
+                    this._pathStack.interogatePath(path);
+                    if (!err) {
+                        this._pathStack.push(path, stat.ino, stat.dev);
+                    }
+                    else {
+                        lastRemovedPrefix = path;
+                    }
                 }
 
-                // Get the stat information for the item being scanned.
-                return getStat(path, (err, stat) => {
-                    // Update the path stack.
-                    if (type === CapsuleEntry.Type.DIRECTORY) {
-                        this._pathStack.interogatePath(path);
-                        if (!err) {
-                            this._pathStack.push(path, stat.ino, stat.dev);
-                        }
-                        else {
-                            lastRemovedPrefix = path;
-                        }
+                // Removal due to deletion, or error.
+                if (err) {
+                    if (err.code !== 'ENOENT') {
+                        debug(`Unexpected error: ${err.code} at: '${relativePath}'.`);
+                        this._errors += 1;
                     }
 
-                    // Removal due to deletion, or error.
-                    if (err) {
-                        if (err.code !== 'ENOENT') {
-                            debug(`Unexpected error: ${err.code} at: '${relativePath}'.`);
-                            this._errors += 1;
+                    this._remove(relativePath, type);
+                }
+                // Directory removal due to exclusion.
+                else if (type === CapsuleEntry.Type.DIRECTORY && this.exclude(path)) {
+                    lastRemovedPrefix = path;
+                    this._remove(relativePath, type);
+                }
+                // File or link removal due to filter.
+                else if (type !== CapsuleEntry.Type.DIRECTORY && !this.filter(entry)) {
+                    this._remove(relativePath, type);
+                }
+                // Update.
+                else {
+                    // File update.
+                    if (stat.isFile() && type === CapsuleEntry.Type.FILE) {
+                        const file = FileEntry.makeFromSerialization(relativePath, data.value);
+
+                        if (!file.isIdentical(stat)) {
+                            file.update(stat);
+                            this.upsert(file);
                         }
 
-                        this._remove(relativePath, type);
+                        return next();
                     }
-                    // Directory removal due to exclusion.
-                    else if (type === CapsuleEntry.Type.DIRECTORY && this.exclude(path)) {
-                        lastRemovedPrefix = path;
-                        this._remove(relativePath, type);
-                    }
-                    // File or link removal due to filter.
-                    else if (type !== CapsuleEntry.Type.DIRECTORY && !this.filter(entry)) {
-                        this._remove(relativePath, type);
-                    }
-                    // Update.
-                    else {
-                        // File update.
-                        if (stat.isFile() && type === CapsuleEntry.Type.FILE) {
-                            const file = FileEntry.makeFromSerialization(relativePath, data.value);
+                    // Directory update.
+                    else if (stat.isDirectory() && type === CapsuleEntry.Type.DIRECTORY) {
+                        const dir = DirectoryEntry.makeFromSerialization(relativePath, data.value);
 
-                            if (!file.isIdentical(stat)) {
-                                file.update(stat);
-                                this.upsert(file);
-                            }
-
-                            return next();
-                        }
-                        // Directory update.
-                        else if (stat.isDirectory() && type === CapsuleEntry.Type.DIRECTORY) {
-                            const dir = DirectoryEntry.makeFromSerialization(relativePath, data.value);
-
-                            if (!dir.isIdentical(stat)) {
-                                dir.update(stat);
-                                this.upsert(dir);
-                                return this._findAddedPaths(path, data.key, (additions) => {
-                                    this._processAddedPaths(additions, next);
-                                });
-                            }
-
-                            return next();
-                        }
-                        // Weak link update.
-                        else if (type === CapsuleEntry.Type.LINK && this._options.followLinks) {
-                            // When following links, a Capsule link entry is a weak-link, a link to break cycles
-                            // in the file system structure. The above getStat call is a stat in this case which gets us
-                            // the metadata of the file or directory the link points to, not the link itself. So redo
-                            // with an lstat.
-                            return fs.lstat(path, (linkErr, linkStat) => {
-                                // Path does point to a link.
-                                if (!linkErr && linkStat.isSymbolicLink()) {
-                                    const link = LinkEntry.makeFromSerialization(relativePath, data.value);
-
-                                    // TODO: Do we have to check if the linked path changed? Symlinks have no atomic
-                                    // edit capability.
-                                    if (!link.isIdentical(linkStat)) {
-                                        link.update(linkStat);
-                                        this.upsert(link);
-                                    }
-                                }
-                                // Path is not actually a link.
-                                else {
-                                    this._remove(relativePath, type);
-                                }
-
-                                return next();
+                        if (!dir.isIdentical(stat)) {
+                            dir.update(stat);
+                            this.upsert(dir);
+                            return this._findAddedPaths(path, data.key, (additions) => {
+                                this._processAddedPaths(additions, next);
                             });
                         }
-                        // Link update.
-                        else if (type === CapsuleEntry.Type.LINK && !this._options.followLinks) {
-                            // When not following links, a Capsule link entry should mirror an on-disk link entry. The
-                            // getStat call above in this case is an lstat, meaning we can compare the database entry to
-                            // the on-disk entry directly.
-                            if (stat.isSymbolicLink()) {
+
+                        return next();
+                    }
+                    // Weak link update.
+                    else if (type === CapsuleEntry.Type.LINK && this._options.followLinks) {
+                        // When following links, a Capsule link entry is a weak-link, a link to break cycles
+                        // in the file system structure. The above getStat call is a stat in this case which gets us
+                        // the metadata of the file or directory the link points to, not the link itself. So redo
+                        // with an lstat.
+                        return fs.lstat(path, (linkErr, linkStat) => {
+                            // Path does point to a link.
+                            if (!linkErr && linkStat.isSymbolicLink()) {
                                 const link = LinkEntry.makeFromSerialization(relativePath, data.value);
 
-                                if (!link.isIdentical(stat)) {
-                                    link.update(stat);
+                                // TODO: Do we have to check if the linked path changed? Symlinks have no atomic
+                                // edit capability.
+                                if (!link.isIdentical(linkStat)) {
+                                    link.update(linkStat);
                                     this.upsert(link);
                                 }
-                                return next();
                             }
-                        }
+                            // Path is not actually a link.
+                            else {
+                                this._remove(relativePath, type);
+                            }
 
-                        // Type mismatch. Remove database entry.
-                        this._remove(relativePath, type);
+                            return next();
+                        });
+                    }
+                    // Link update.
+                    else if (type === CapsuleEntry.Type.LINK && !this._options.followLinks) {
+                        // When not following links, a Capsule link entry should mirror an on-disk link entry. The
+                        // getStat call above in this case is an lstat, meaning we can compare the database entry to
+                        // the on-disk entry directly.
+                        if (stat.isSymbolicLink()) {
+                            const link = LinkEntry.makeFromSerialization(relativePath, data.value);
+
+                            if (!link.isIdentical(stat)) {
+                                link.update(stat);
+                                this.upsert(link);
+                            }
+                            return next();
+                        }
                     }
 
-                    return next();
-                });
-            })
+                    // Type mismatch. Remove database entry.
+                    this._remove(relativePath, type);
+                }
+
+                return next();
+            });
+        });
+    }
+
+    run(fullPath) {
+        const subTreePath = fullPath || this._root;
+        this._pathStack = new PathStack();
+        this._startStats();
+        return this._seekTo(subTreePath)
+            .then(() => this._scanSubTree(subTreePath))
             .then(() => {
                 this._endStats();
                 this._pathStack = null;
-                resolve();
-            })
-            .catch(reject);
-        });
+            });
     }
 
 }

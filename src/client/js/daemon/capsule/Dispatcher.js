@@ -88,11 +88,11 @@ class Dispatcher {
         this._crankQueue();
     }
 
-    _dispatchDeltaScan(tree, source) {
+    _dispatchDeltaScan(tree, source, path) {
         this._queuedScans.push({
             source:    source,
             tree:      tree,
-            scanner:   Dispatcher._deltaScan.bind(null, tree, source),
+            scanner:   Dispatcher._deltaScan.bind(null, tree, source, path || null),
             changeLog: new ChangeLog(Dispatcher.CHANGELOG_MEMORY_LENGTH),
         });
         this._crankQueue();
@@ -120,7 +120,7 @@ class Dispatcher {
                 break;
             case Source.Actions.SCAN_PATH:
                 debug(`Change Notification: Scan '${change.fullPath}'.`);
-                pathsToScan.push(change.path);
+                this._dispatchDeltaScan(tree, source, change.fullPath);
                 break;
             case Source.Actions.REMOVE_IF:
                 debug(`Change Notification: Remove '${change.path}'.`);
@@ -130,9 +130,6 @@ class Dispatcher {
                 break;
             }
         });
-
-        // Dispatch a delta scan to handle scan requests.
-        // this._dispatchDeltaScan(tree, source, pathsToScan);
     }
 
     static _initialScan(tree, source, time) {
@@ -173,7 +170,7 @@ class Dispatcher {
         });
     }
 
-    static _deltaScan(tree, source, time) {
+    static _deltaScan(tree, source, path, time) {
         let batch = [];
 
         function commit() {
@@ -213,8 +210,14 @@ class Dispatcher {
         }
 
         return new Promise((resolve, reject) => {
-            debug(`\u0394-Scan [${source.id}] started.`);
-            source.delta(tree, upsert, remove, commit, progress)
+            if (!path) {
+                debug(`\u0394-Scan [${source.id}] started.`);
+            }
+            else {
+                debug(`\u0394-Scan [${source.id}] started at '${path}'.`);
+            }
+
+            source.delta(tree, path, upsert, remove, commit, progress)
                 .then(commit)
                 .then(resolve)
                 .catch(reject);

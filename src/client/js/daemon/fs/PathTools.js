@@ -31,4 +31,16 @@ class PathTools {
         return path.join(root, givenPath);
     }
 
+    static getTraversalPath(givenPath) {
+        const parsed = path.parse(path.normalize(givenPath));
+        const directories = parsed.dir.replace(parsed.root, '').split(path.sep);
+        const traverse = [];
+        while (directories.length > 0) {
+            const previousPath = traverse[traverse.length - 1] || parsed.root;
+            const nextPath = path.join(previousPath, directories.shift());
+            traverse.push(nextPath);
+        }
+        return traverse;
+    }
+
 };

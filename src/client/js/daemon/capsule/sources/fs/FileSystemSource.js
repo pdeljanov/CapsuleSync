@@ -178,7 +178,7 @@ class FileSystemSource extends Source {
         });
     }
 
-    delta(tree, upsert, remove, commit, progress) {
+    delta(tree, path, upsert, remove, commit, progress) {
         return new Promise((resolve, reject) => {
             const delta = new DeltaScanner(this._root, tree, { followLinks: true, progressInterval: 500 });
 
@@ -188,7 +188,7 @@ class FileSystemSource extends Source {
             delta.commit = commit;
             delta.filter = entry => this.filters.evaluate(entry);
 
-            delta.run()
+            delta.run(path)
                 .then(() => {
                     this.lastScan = Date();
                     resolve();
