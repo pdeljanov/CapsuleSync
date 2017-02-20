@@ -8,6 +8,7 @@ const DeltaScanner = require('./DeltaScanner.js');
 const DifferenceEngine = require('./DifferenceEngine.js');
 const Watcher = require('./Watcher.js');
 const { FilterSet } = require('../../FilterSet.js');
+const { CapsuleEntry } = require('../../CapsuleEntry.js');
 
 class FileSystemSource extends Source {
 
@@ -92,7 +93,12 @@ class FileSystemSource extends Source {
         const update = entry => this.emit('change', { action: Source.Actions.UPSERT, entry: entry });
 
         const add = (fullPath, entry, done) => {
-            this.emit('change', { action: Source.Actions.UPSERT, entry: entry });
+            if (entry.type === CapsuleEntry.Type.DIRECTORY) {
+                this.emit('deltaScan', { at: fullPath });
+            }
+            else {
+                this.emit('change', { action: Source.Actions.UPSERT, entry: entry });
+            }
             done();
         };
 

@@ -50,7 +50,7 @@ class Dispatcher {
             this._dispatchInitialScan(tree, source);
             break;
         case Dispatcher.Events.DELTA_SCAN:
-            this._dispatchDeltaScan(tree, source);
+            this._dispatchDeltaScan(tree, source, data);
             break;
         case Dispatcher.Events.CHANGE_NOTIFICATION:
             this._dispatchChangeNotification(tree, source, data);
@@ -89,11 +89,11 @@ class Dispatcher {
         this._crankQueue();
     }
 
-    _dispatchDeltaScan(tree, source, path) {
+    _dispatchDeltaScan(tree, source, options) {
         this._queuedScans.push({
             source:    source,
             tree:      tree,
-            scanner:   Dispatcher._deltaScan.bind(null, tree, source, path || null),
+            scanner:   Dispatcher._deltaScan.bind(null, tree, source, options),
             changeLog: new ChangeLog(Dispatcher.CHANGELOG_MEMORY_LENGTH),
         });
         this._crankQueue();
@@ -115,12 +115,11 @@ class Dispatcher {
         switch (change.action) {
         case Source.Actions.UPSERT:
             debug(`Change Notification: Upsert '${change.entry.path}'.`);
-            break;
-        case Source.Actions.SCAN_PATH:
-            debug(`Change Notification: Scan '${change.fullPath}'.`);
+            tree.put(change.entry.path, change.entry.serialize());
             break;
         case Source.Actions.REMOVE_IF:
             debug(`Change Notification: Remove '${change.path}'.`);
+            tree.delSubTree(change.path);
             break;
         default:
             debug(`Unknown change notification received. Action=${change.action}.`);
@@ -166,7 +165,7 @@ class Dispatcher {
         });
     }
 
-    static _deltaScan(tree, source, path, time) {
+    static _deltaScan(tree, source, options, time) {
         let batch = [];
 
         function commit() {
@@ -206,14 +205,16 @@ class Dispatcher {
         }
 
         return new Promise((resolve, reject) => {
-            if (!path) {
+            const scanPath = (options && options.at) ? options.at : null;
+
+            if (!scanPath) {
                 debug(`\u0394-Scan [${source.id}] started.`);
             }
             else {
-                debug(`\u0394-Scan [${source.id}] started at '${path}'.`);
+                debug(`\u0394-Scan [${source.id}] started at '${options.at}'.`);
             }
 
-            source.delta(tree, path, upsert, remove, commit, progress)
+            source.delta(tree, scanPath, upsert, remove, commit, progress)
                 .then(commit)
                 .then(resolve)
                 .catch(reject);

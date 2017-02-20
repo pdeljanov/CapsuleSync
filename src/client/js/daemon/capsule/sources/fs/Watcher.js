@@ -16,13 +16,13 @@ class Watcher {
 
     static _getAffectedPaths(events) {
         const paths = [].concat(...events.map((event) => {
-            if (event.oldFile && event.newFile) {
-                return [path.join(event.directory, event.oldFile), path.join(event.directory, event.newFile)];
+            // Modified files or directories should only affect the path itself.
+            if (event.action === nsfw.actions.MODIFIED) {
+                return [path.join(event.directory, event.file)];
             }
-            else if (event.file || event.oldFile || event.newFile) {
-                return [path.join(event.directory, event.file || event.oldFile || event.newFile)];
-            }
-            return [];
+
+            // Created, deleted, or renamed files or directories affect the parent directory.
+            return [event.directory];
         }));
         return paths.filter((value, index) => paths.indexOf(value) === index);
     }

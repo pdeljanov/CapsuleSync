@@ -26,11 +26,11 @@ class DifferenceEngine {
         this._options = {
             directoryAdds:    true,
             directoryRemoves: true,
-            followLinks:      (options && options.followLinks) || (!options && true),
-            concurrency:      (options && options.concurrency) || (!options && 8),
+            followLinks:      Object.prototype.hasOwnProperty.call(options, 'followLinks') ? options.followLinks : true,
+            concurrency:      Object.prototype.hasOwnProperty.call(options, 'concurrency') ? options.concurrency : 8,
         };
 
-        if (options && options.directoryCheck) {
+        if (Object.prototype.hasOwnProperty.call(options, 'directoryCheck')) {
             switch (options.directoryCheck) {
             case DifferenceEngine.DirectoryCheck.ADDED:
                 this._options.directoryRemoves = false;
@@ -47,11 +47,11 @@ class DifferenceEngine {
             }
         }
 
-        this._add = (options && options.add) ? options.add.bind(this) : (d => d());
-        this._remove = (options && options.remove) ? options.remove.bind(this) : (() => {});
-        this._update = (options && options.update) ? options.update.bind(this) : (() => {});
-        this._error = (options && options.error) ? options.error.bind(this) : (() => {});
-        this._ignore = (options && options.ignore) ? options.ignore.bind(this) : (() => {});
+        this._add = Object.prototype.hasOwnProperty.call(options, 'add') ? options.add.bind(this) : (d => d());
+        this._remove = Object.prototype.hasOwnProperty.call(options, 'remove') ? options.remove.bind(this) : (() => {});
+        this._update = Object.prototype.hasOwnProperty.call(options, 'update') ? options.update.bind(this) : (() => {});
+        this._error = Object.prototype.hasOwnProperty.call(options, 'error') ? options.error.bind(this) : (() => {});
+        this._ignore = Object.prototype.hasOwnProperty.call(options, 'ignore') ? options.ignore.bind(this) : (() => {});
     }
 
     _addFile(path, relativePath, stat, done) {
