@@ -1,8 +1,9 @@
 const assert = require('assert');
 
 function getParentPath(path) {
-    const offset = (path[path.length - 1] === '/') ? 1 : 0;
-    return path.substr(0, path.lastIndexOf('/', path.length - offset - 1));
+    const offset = path[path.length - 1] ? 1 : 0;
+    const parent = path.substr(0, path.lastIndexOf('/', path.length - offset - 1));
+    return parent || '/';
 }
 
 function normalizePath(path) {

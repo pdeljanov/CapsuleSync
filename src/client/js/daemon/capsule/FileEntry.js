@@ -2,7 +2,7 @@ const Blob = require('./Blob.js');
 const IdGenerator = require('../util/IdGenerator.js');
 const PathTools = require('../fs/PathTools.js');
 
-class File {
+class FileEntry {
 
     constructor(path, blob) {
         this.path = path;
@@ -18,6 +18,10 @@ class File {
             a:   blob != null,
         };
         this._blob = blob || null;
+    }
+
+    get type() {
+        return FileEntry.TYPE;
     }
 
     get id() {
@@ -98,7 +102,7 @@ class File {
 
     static makeFromSerialization(path, serialization) {
         const blob = serialization.b ? Blob.deserialize(serialization.b) : null;
-        const deserialized = new File(path, blob);
+        const deserialized = new FileEntry(path, blob);
         deserialized._data.typ = serialization.typ;
         deserialized._data.id = serialization.id;
         deserialized._data.dn = serialization.dn;
@@ -109,12 +113,12 @@ class File {
     }
 
     static makeFromStat(path, stat) {
-        const id = IdGenerator(File.ID_LENGTH);
+        const id = IdGenerator(FileEntry.ID_LENGTH);
         const fileName = PathTools.extractFileName(path);
         const mediaType = PathTools.extractMediaType(path);
         const blob = Blob.fromStat(path, stat);
 
-        const file = new File(path, blob);
+        const file = new FileEntry(path, blob);
         file._data.typ = mediaType;
         file._data.id = id;
         file._data.fn = fileName;
@@ -122,6 +126,8 @@ class File {
     }
 }
 
-File.ID_LENGTH = 12;
+FileEntry.ID_LENGTH = 12;
 
-module.exports = File;
+FileEntry.TYPE = 1;
+
+module.exports = FileEntry;

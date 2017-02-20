@@ -23,6 +23,7 @@ class Dispatcher {
 
         // Load the source.
         return source.load()
+            .then(() => source.startWatch(tree))
             .catch((err) => {
                 // If there is an error loading the source, remove it and re-throw the error.
                 this.removeSource(source);

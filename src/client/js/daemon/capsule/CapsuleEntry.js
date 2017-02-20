@@ -37,10 +37,10 @@ class CapsuleEntry {
 }
 
 CapsuleEntry.Type = {
-    UNKOWN:    0,
-    FILE:      1,
-    DIRECTORY: 2,
-    LINK:      3,
+    UNKNOWN:   0,
+    FILE:      FileEntry.TYPE,
+    DIRECTORY: DirectoryEntry.TYPE,
+    LINK:      LinkEntry.TYPE,
 };
 
 module.exports = {

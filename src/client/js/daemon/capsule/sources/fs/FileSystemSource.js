@@ -2,13 +2,12 @@ const debug = require('debug')('Capsule.Sources.FileSystem.FileSystemSource');
 const fs = require('original-fs');
 
 const Source = require('../Source.js');
+const PathStack = require('./PathStack.js');
 const IntegralScanner = require('./IntegralScanner.js');
 const DeltaScanner = require('./DeltaScanner.js');
+const DifferenceEngine = require('./DifferenceEngine.js');
 const Watcher = require('./Watcher.js');
 const { FilterSet } = require('../../FilterSet.js');
-const { FileEntry, LinkEntry } = require('../../CapsuleEntry.js');
-const PathTools = require('../../../fs/PathTools.js');
-const Link = require('../../../fs/Link.js');
 
 class FileSystemSource extends Source {
 
@@ -45,44 +44,23 @@ class FileSystemSource extends Source {
                 // Loaded successfully.
                 else {
                     debug(`[${this._id}] Source path exists!`);
-                    debug(`[${this._id}] Starting notification service...`);
+                    debug(`[${this._id}] FileSystemSource loaded successfully!`);
 
-                    this._watcher = new Watcher(this._root);
-                    this._watcher.change = (paths) => {
-                        const promises = paths.map(this._determineChangeType.bind(this));
-                        Promise.all(promises).then((changes) => {
-                            this.emit('change', changes);
-                        });
-                    };
+                    // Complete the load.
+                    resolve();
 
-                    // Load the watcher.
-                    this._watcher.load()
-                        .then(() => {
-                            debug(`[${this._id}] Notification service started!`);
-                        })
-                        .catch(() => {
-                            debug(`[${this._id}] Notification service failed to start. Falling back to periodic scanning.`);
-                            this._watcher = null;
-                        })
-                        .then(() => {
-                            debug(`[${this._id}] FileSystemSource loaded successfully!`);
-
-                            // Complete the load.
-                            resolve();
-
-                            // Check if there was an initial scan in a new thread to allow the load thread
-                            // to complete.
-                            process.nextTick(() => {
-                                if (this.lastScan === null) {
-                                    debug(`[${this._id}] Source has never been scanned before.`);
-                                    this.emit('initialScan');
-                                }
-                                else {
-                                    debug(`[${this._id}] Source was last scanned ${this.lastScan}.`);
-                                    this.emit('deltaScan');
-                                }
-                            });
-                        });
+                    // Check if there was an initial scan in a new thread to allow the load thread
+                    // to complete.
+                    process.nextTick(() => {
+                        if (this.lastScan === null) {
+                            debug(`[${this._id}] Source has never been scanned before.`);
+                            this.emit('initialScan');
+                        }
+                        else {
+                            debug(`[${this._id}] Source was last scanned ${this.lastScan}.`);
+                            this.emit('deltaScan');
+                        }
+                    });
                 }
             });
         });
@@ -105,59 +83,50 @@ class FileSystemSource extends Source {
 
     }
 
-    _determineChangeType(path) {
-        return new Promise((resolve) => {
-            fs.lstat(path, (err, stat) => {
-                const relativePath = PathTools.stripRoot(path, this._root);
+    startWatch(tree, upsert, remove) {
+        function processChanges(path) {
+            return new Promise((resolve) => {
+                const options = {
+                    directoryCheck: DifferenceEngine.DirectoryCheck.BOTH,
+                    followLinks:    this._options.followLinks,
+                    add:            () => { debug('Add'); },
+                    remove:         () => { debug('Rem'); },
+                    update:         () => { debug('Upd'); },
+                };
 
-                if (!err) {
-                    // File was modified.
-                    if (stat.isFile()) {
-                        const file = FileEntry.makeFromStat(relativePath, stat);
-                        resolve({ action: Source.Actions.UPSERT, entry: file });
-                    }
-                    // Directory was modified.
-                    else if (stat.isDirectory()) {
-                        resolve({ action: Source.Actions.SCAN_PATH, fullPath: path });
-                    }
-                    // Following links.
-                    else if (stat.isSymbolicLink()) {
-                        // Determine what was modified on the other side.
-                        Link.resolve(path)
-                            .then((resolved) => {
-                                // If following links, determine what to do based on the linked stat.
-                                if (this._options.followLinks) {
-                                    // File modified.
-                                    if (resolved.linkedStat.isFile()) {
-                                        const file = FileEntry.makeFromStat(relativePath, resolved.linkedStat);
-                                        return resolve({ action: Source.Actions.UPSERT, entry: file });
-                                    }
-                                    // Directory modified.
-                                    else if (resolved.linkedStat.isDirectory()) {
-                                        return resolve({ action: Source.Actions.SCAN_PATH, fullPath: path });
-                                    }
+                const diff = new DifferenceEngine(tree, this._root, options);
+                const stack = new PathStack();
 
-                                    // Neither a file or directory. Remove.
-                                    return resolve({ action: Source.Actions.REMOVE_IF });
-                                }
-
-                                // Unfollowed link modified.
-                                const link = LinkEntry.makeFromStat(relativePath, resolved.linkedPath, resolved.linkedStat);
-                                return resolve({ action: Source.Actions.UPSERT, entry: link });
-                            })
-                            .catch(() => resolve({ action: Source.Actions.REMOVE_IF, path: relativePath }));
-                    }
-                    // Neither a file, directory, nor link.
-                    else {
-                        resolve({ action: Source.Actions.REMOVE_IF, path: relativePath });
-                    }
-                }
-                // Can't stat.
-                else {
-                    resolve({ action: Source.Actions.REMOVE_IF, path: relativePath });
-                }
+                // Run the difference engine against the path.
+                diff.path(stack, path, () => {
+                    resolve(null);
+                });
             });
-        });
+        }
+
+        debug(`[${this._id}] Starting notification service...`);
+
+        this._watcher = new Watcher(this._root);
+        this._watcher.change = (paths) => {
+            const promises = paths.map(processChanges.bind(this));
+            Promise.all(promises).then((changes) => {
+                // this.emit('change', changes);
+            });
+        };
+
+        // Load the watcher.
+        this._watcher.load()
+            .then(() => {
+                debug(`[${this._id}] Notification service started!`);
+            })
+            .catch(() => {
+                debug(`[${this._id}] Notification service failed to start. Falling back to periodic scanning.`);
+                this._watcher = null;
+            });
+    }
+
+    stopWatch() {
+
     }
 
     integral(insert, commit, progress) {

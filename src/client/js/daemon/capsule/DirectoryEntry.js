@@ -1,7 +1,7 @@
 const IdGenerator = require('../util/IdGenerator.js');
 const PathTools = require('../fs/PathTools.js');
 
-class Directory {
+class DirectoryEntry {
 
     constructor(path) {
         this.path = path;
@@ -14,6 +14,10 @@ class Directory {
             mv:  { },
             sv:  { },
         };
+    }
+
+    get type() {
+        return DirectoryEntry.TYPE;
     }
 
     get id() {
@@ -75,7 +79,7 @@ class Directory {
     }
 
     static makeFromSerialization(path, serialization) {
-        const deserialized = new Directory(path);
+        const deserialized = new DirectoryEntry(path);
         deserialized._data.id = serialization.id;
         deserialized._data.dn = serialization.dn;
         deserialized._data.din = serialization.din;
@@ -86,10 +90,10 @@ class Directory {
     }
 
     static makeFromStat(path, stat) {
-        const id = IdGenerator(Directory.ID_LENGTH);
+        const id = IdGenerator(DirectoryEntry.ID_LENGTH);
         const dirName = PathTools.extractFileName(path);
 
-        const dir = new Directory(path);
+        const dir = new DirectoryEntry(path);
         dir._data.id = id;
         dir._data.din = dirName;
         dir._data.mt = stat.mtime;
@@ -98,6 +102,7 @@ class Directory {
 
 }
 
-Directory.ID_LENGTH = 12;
+DirectoryEntry.ID_LENGTH = 12;
+DirectoryEntry.TYPE = 2;
 
-module.exports = Directory;
+module.exports = DirectoryEntry;

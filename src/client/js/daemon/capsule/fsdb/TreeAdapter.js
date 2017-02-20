@@ -1,7 +1,5 @@
-'use strict';
-
-const assert = require('assert');
-const debug = require('debug')('Capsule.FSDB.TreeAdapter');
+// const assert = require('assert');
+// const debug = require('debug')('Capsule.FSDB.TreeAdapter');
 
 const xxhash = require('xxhash');
 // const endStream = require('end-stream');
@@ -23,6 +21,10 @@ function makeNode(path, value) {
 }
 
 function getNodeData(node) {
+    return node.d;
+}
+
+function getNodeDataKV(node) {
     return {
         path: node.key,
         data: node.value.d,
@@ -37,15 +39,11 @@ class TreeAdapter {
     }
 
     index(indexName, reduceFunc) {
-        indexName = `d.${indexName}`;
-        return this._partition.index(indexName, function(node) {
-            return reduceFunc(node.d);
-        });
+        return this._partition.index(`d.${indexName}`, node => reduceFunc(node.d));
     }
 
     drop(indexName) {
-        indexName = `d.${indexName}`;
-        return this._partition.drop(indexName);
+        return this._partition.drop(`d.${indexName}`);
     }
 
     put(path, value) {
@@ -60,17 +58,20 @@ class TreeAdapter {
     }
 
     get(path) {
-        return this._partition.get(path).then(getNodeData);
+        return this._partition.get(TreePath.normalizePath(path)).then(getNodeData);
+    }
+
+    tryGet(path) {
+        return this._partition.get(TreePath.normalizePath(path)).then(getNodeData).catch(() => Promise.resolve(null));
     }
 
     getBy(indexName, value) {
-        indexName = `d.${indexName}`;
-        return this._partition.getBy(indexName, value).then(entries => entries.map(getNodeData));
+        return this._partition.getBy(`d.${indexName}`, value).then(entries => entries.map(getNodeDataKV));
     }
 
     getChildren(path) {
-        const parentHash = hash(path);
-        return this._partition.getBy('p', parentHash).then(entries => entries.map(getNodeData));
+        const parentHash = hash(TreePath.normalizePath(path));
+        return this._partition.getBy('p', parentHash).then(entries => entries.map(getNodeDataKV));
     }
 
     getParent(path) {

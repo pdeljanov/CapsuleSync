@@ -43,4 +43,8 @@ class PathTools {
         return traverse;
     }
 
+    static getAbsoluteLinkPath(pathOfLink, linkedPath) {
+        return path.resolve(path.getdirname(pathOfLink), linkedPath);
+    }
+
 };

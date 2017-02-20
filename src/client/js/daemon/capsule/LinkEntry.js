@@ -21,6 +21,10 @@ class LinkEntry {
         this._blob = blob || null;
     }
 
+    get type() {
+        return LinkEntry.TYPE;
+    }
+
     get id() {
         return this._data.id;
     }
@@ -121,5 +125,6 @@ class LinkEntry {
 }
 
 LinkEntry.ID_LENGTH = 12;
+LinkEntry.TYPE = 3;
 
 module.exports = LinkEntry;
