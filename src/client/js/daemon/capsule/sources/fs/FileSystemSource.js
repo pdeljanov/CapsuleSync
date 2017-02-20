@@ -83,35 +83,36 @@ class FileSystemSource extends Source {
 
     }
 
-    startWatch(tree, upsert, remove) {
-        function processChanges(path) {
-            return new Promise((resolve) => {
-                const options = {
-                    directoryCheck: DifferenceEngine.DirectoryCheck.BOTH,
-                    followLinks:    this._options.followLinks,
-                    add:            () => { debug('Add'); },
-                    remove:         () => { debug('Rem'); },
-                    update:         () => { debug('Upd'); },
-                };
-
-                const diff = new DifferenceEngine(tree, this._root, options);
-                const stack = new PathStack();
-
-                // Run the difference engine against the path.
-                diff.path(stack, path, () => {
-                    resolve(null);
-                });
-            });
-        }
-
+    startWatch(tree) {
         debug(`[${this._id}] Starting notification service...`);
 
+        // Difference engine event handlers.
+        const remove = relativePath => this.emit('change', { action: Source.Actions.REMOVE_IF, path: relativePath });
+
+        const update = entry => this.emit('change', { action: Source.Actions.UPSERT, entry: entry });
+
+        const add = (fullPath, entry, done) => {
+            this.emit('change', { action: Source.Actions.UPSERT, entry: entry });
+            done();
+        };
+
+        const options = {
+            directoryCheck: DifferenceEngine.DirectoryCheck.BOTH,
+            followLinks:    this._options.followLinks,
+            add:            add,
+            remove:         remove,
+            update:         update,
+        };
+
+        // Create a difference engine that will be used for all watch notifications.
+        const diff = new DifferenceEngine(tree, this._root, options);
+
+        // Create a watcher to monitor for change events.
         this._watcher = new Watcher(this._root);
-        this._watcher.change = (paths) => {
-            const promises = paths.map(processChanges.bind(this));
-            Promise.all(promises).then((changes) => {
-                // this.emit('change', changes);
-            });
+
+        // On-change notification, run the difference engine on each changed path.
+        this._watcher.change = (fullPaths) => {
+            fullPaths.forEach(fullPath => diff.path(new PathStack(), fullPath, () => {}));
         };
 
         // Load the watcher.

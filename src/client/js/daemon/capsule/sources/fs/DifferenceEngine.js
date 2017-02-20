@@ -111,48 +111,58 @@ class DifferenceEngine {
         });
     }
 
-    _processRemovedPaths(stack, paths, done) {
-        if (paths.length > 0) {
-            debug(`WARNING: Implement path removals in DifferenceEngine! Ignoring ${paths.length} removals!`);
+    _processRemovedPaths(stack, fullPaths, done) {
+        if (fullPaths.length > 0) {
+            debug(`WARNING: Implement path removals in DifferenceEngine! Ignoring ${fullPaths.length} removals!`);
+            /*
+            fullPaths.forEach((fullPath) => {
+                const relativePath = PathTools.stripRoot(fullPath, this._root);
+                this._remove(relativePath, ...);
+            });
+            */
         }
         done();
     }
 
-    _processAddedPaths(stack, paths, done) {
-        async.eachLimit(paths, this._options.concurrency, (path, next) => {
-            fs.lstat(path, (err, stat) => {
+    _processAddedPath(stack, fullPath, stat, done) {
+        const relativePath = PathTools.stripRoot(fullPath, this._root);
+
+        // File addition.
+        if (stat.isFile()) {
+            return this._addFile(fullPath, relativePath, stat, done);
+        }
+        // Directory addition.
+        else if (stat.isDirectory()) {
+            return this._addDirectory(fullPath, relativePath, stat, done);
+        }
+        // Link addition.
+        else if (stat.isSymbolicLink()) {
+            return this._addSymlink(stack, fullPath, relativePath, stat, done);
+        }
+
+        // Not a file, directory, or link.
+        debug(`Path: '${fullPath}' is neither a file, directory, nor link. Ignoring.`);
+        this._ignore(fullPath);
+
+        return done();
+    }
+
+    _processAddedPaths(stack, fullPaths, done) {
+        async.eachLimit(fullPaths, this._options.concurrency, (fullPath, next) => {
+            // Stat the path without following it, then process it.
+            fs.lstat(fullPath, (err, stat) => {
                 if (!err) {
-                    const relativePath = PathTools.stripRoot(path, this._root);
-
-                    // File addition.
-                    if (stat.isFile()) {
-                        return this._addFile(path, relativePath, stat, next);
-                    }
-                    // Directory addition.
-                    else if (stat.isDirectory()) {
-                        return this._addDirectory(path, relativePath, stat, next);
-                    }
-                    // Link addition.
-                    else if (stat.isSymbolicLink()) {
-                        return this._addSymlink(stack, path, relativePath, stat, next);
-                    }
-
-                    // Not a file, directory, or link.
-                    debug(`Path: '${path}' is neither a file, directory, nor link. Ignoring.`);
-                    this._ignore(path);
+                    return this._processAddedPath(stack, fullPath, stat, next);
                 }
+
                 // Error in stating the path.
-                else {
-                    debug(`Failed to stat: '${path}' with error: ${err.code}.`);
-                    this._error(path, err);
-                }
+                debug(`Failed to stat: '${fullPath}' with error: ${err.code}.`);
+                this._error(fullPath, err);
 
                 return next();
             });
         },
-        () => {
-            done();
-        });
+        () => done());
     }
 
     static _calculateDirectoryDeltaAdds(currentNames, previousNames) {
@@ -218,7 +228,7 @@ class DifferenceEngine {
 
         // Get the stat information for the item being scanned.
         return this.getStat(fullPath, (err, stat) => {
-            // Update the path stack.
+            // Update the traversal stack.
             if (!err && stat.isDirectory()) {
                 stack.interogatePath(fullPath);
                 stack.push(fullPath, stat.ino, stat.dev);
@@ -231,11 +241,13 @@ class DifferenceEngine {
                     this._error(fullPath, err);
                 }
 
-                this._remove(relativePath, entry.type);
+                if (entry) {
+                    this._remove(relativePath, entry.type);
+                }
             }
             // Addition.
             else if (!entry) {
-                debug('WARNING: Implement additions to difference engine.');
+                return this._processAddedPath(stack, fullPath, stat, done);
             }
             // Update.
             else {
