@@ -22,12 +22,15 @@ class PathTools {
     static stripRoot(givenPath, root) {
         const striped = givenPath.replace(root, '');
         if (striped === '') {
-            return '/';
+            return path.sep;
         }
         return striped;
     }
 
     static appendRoot(root, givenPath) {
+        if (givenPath === path.sep) {
+            return root;
+        }
         return path.join(root, givenPath);
     }
 

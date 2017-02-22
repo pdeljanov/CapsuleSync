@@ -125,7 +125,7 @@ class DeltaScanner {
         }
     }
 
-    _remove(relativePath, type) {
+    _remove(fullPath, relativePath, type) {
         this._removeCount(type);
         this.remove(relativePath);
     }
@@ -227,12 +227,12 @@ class DeltaScanner {
             }
             // Directory removal due to exclusion.
             else if (entry.type === CapsuleEntry.Type.DIRECTORY && this.exclude(fullPath)) {
-                this._remove(relativePath, entry.type);
+                this._remove(fullPath, relativePath, entry.type);
                 return next();
             }
             // File or link removal due to filter.
             else if (entry.type !== CapsuleEntry.Type.DIRECTORY && !this.filter(entry)) {
-                this._remove(relativePath, entry.type);
+                this._remove(fullPath, relativePath, entry.type);
                 return next();
             }
 

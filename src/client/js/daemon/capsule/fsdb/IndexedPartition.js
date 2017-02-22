@@ -262,7 +262,11 @@ class IndexedPartition extends Partition {
                 });
             }))
             .on('data', (data) => {
-                entries.push(data);
+                // GetBy is not atomic, therefore indexed values can be deleted while fetching the indexed value.
+                // Therefore, ensure the value was fetched before pushing it.
+                if (data.value) {
+                    entries.push(data);
+                }
             })
             .on('error', (err) => {
                 reject(err);

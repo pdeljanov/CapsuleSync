@@ -29,9 +29,9 @@ Source.ERRORS = {
 };
 
 Source.Actions = {
-    UPSERT:    0,
-    SCAN_PATH: 1,
-    REMOVE_IF: 2,
+    UPSERT: 0,
+    REMOVE: 1,
+    SCAN:   2,
 };
 
 module.exports = Source;

@@ -12,8 +12,8 @@ const { FileEntry, LinkEntry, DirectoryEntry, CapsuleEntry } = require('../../Ca
 //
 //  Callbacks:
 //     _add(path, entry, done)
-//     _remove(relativePath, entryType)
-//     _update(entry)
+//     _remove(fullPath, relativePath, entryType, done)
+//     _update(entry, done)
 //     _error(path, error)
 //     _ignore(path)
 
@@ -47,11 +47,49 @@ class DifferenceEngine {
             }
         }
 
-        this._add = Object.prototype.hasOwnProperty.call(options, 'add') ? options.add.bind(this) : (d => d());
-        this._remove = Object.prototype.hasOwnProperty.call(options, 'remove') ? options.remove.bind(this) : (() => {});
-        this._update = Object.prototype.hasOwnProperty.call(options, 'update') ? options.update.bind(this) : (() => {});
+        // Overwrite default handlers if custom handlers exist.
+        if (options && options.add) {
+            this._add = options.add.bind(this);
+        }
+
+        if (options && options.remove) {
+            this._remove = options.remove.bind(this);
+        }
+
+        if (options && options.update) {
+            this._update = options.update.bind(this);
+        }
+
+        if (!options || (options && !options.add && !options.remove && !options.update)) {
+            this._changes = [];
+        }
+
         this._error = Object.prototype.hasOwnProperty.call(options, 'error') ? options.error.bind(this) : (() => {});
         this._ignore = Object.prototype.hasOwnProperty.call(options, 'ignore') ? options.ignore.bind(this) : (() => {});
+    }
+
+    _add(fullPath, entry, done) {
+        if (this._changes) {
+            this._changes.push({ operation: DifferenceEngine.Change.ADD, fullPath: fullPath, entry: entry });
+        }
+        done();
+    }
+
+    _remove(fullPath, relativePath, type) {
+        if (this._changes) {
+            this._changes.push({
+                operation:    DifferenceEngine.Change.REMOVE,
+                fullPath:     fullPath,
+                relativePath: relativePath,
+                type:         type,
+            });
+        }
+    }
+
+    _update(entry) {
+        if (this._changes) {
+            this._changes.push({ operation: DifferenceEngine.Change.UPDATE, entry: entry });
+        }
     }
 
     _addFile(path, relativePath, stat, done) {
@@ -111,16 +149,8 @@ class DifferenceEngine {
         });
     }
 
-    _processRemovedPaths(stack, fullPaths, done) {
-        if (fullPaths.length > 0) {
-            debug(`WARNING: Implement path removals in DifferenceEngine! Ignoring ${fullPaths.length} removals!`);
-            /*
-            fullPaths.forEach((fullPath) => {
-                const relativePath = PathTools.stripRoot(fullPath, this._root);
-                this._remove(relativePath, ...);
-            });
-            */
-        }
+    _processRemovedPaths(stack, entries, done) {
+        entries.forEach(entry => this._remove(entry.fullPath, entry.relativePath, entry.type));
         done();
     }
 
@@ -165,14 +195,14 @@ class DifferenceEngine {
         () => done());
     }
 
-    static _calculateDirectoryDeltaAdds(currentNames, previousNames) {
-        const previous = new Set(previousNames);
+    static _calculateDirectoryDeltaAdds(currentNames, previousEntries) {
+        const previous = new Set(previousEntries.map(item => CapsuleEntry.getName(item.data)));
         return currentNames.filter(item => !previous.has(item));
     }
 
-    static _calculateDirectoryDeltaRemoves(currentNames, previousNames) {
+    static _calculateDirectoryDeltaRemoves(currentNames, previousEntries) {
         const current = new Set(currentNames);
-        return previousNames.filter(item => !current.has(item));
+        return previousEntries.filter(item => !current.has(CapsuleEntry.getName(item.data)));
     }
 
     _calculateDirectoryDelta(fullPath, relativePath, done) {
@@ -183,16 +213,18 @@ class DifferenceEngine {
             let added = [];
             let removed = [];
 
-            const previousNames = values[1].map(item => CapsuleEntry.getName(item.data));
-
             if (this._options.directoryAdds) {
-                added = DifferenceEngine._calculateDirectoryDeltaAdds(values[0], previousNames)
+                added = DifferenceEngine._calculateDirectoryDeltaAdds(values[0], values[1])
                             .map(item => PathTools.appendRoot(fullPath, item));
             }
 
             if (this._options.directoryRemoves) {
-                removed = DifferenceEngine._calculateDirectoryDeltaRemoves(values[0], previousNames)
-                            .map(item => PathTools.appendRoot(fullPath, item));
+                removed = DifferenceEngine._calculateDirectoryDeltaRemoves(values[0], values[1])
+                            .map(item => ({
+                                fullPath:     PathTools.appendRoot(fullPath, item.path),
+                                relativePath: PathTools.appendRoot(relativePath, item.path),
+                                type:         CapsuleEntry.getType(item.data),
+                            }));
             }
 
             done(added, removed);
@@ -201,6 +233,16 @@ class DifferenceEngine {
             debug(`Could not scan directory at: '${relativePath}' due to error: ${err.code}.`);
             done();
         });
+    }
+
+    changes() {
+        return this._changes || [];
+    }
+
+    clear() {
+        if (this._changes) {
+            this._changes = [];
+        }
     }
 
     getStat(path, cb) {
@@ -242,7 +284,7 @@ class DifferenceEngine {
                 }
 
                 if (entry) {
-                    this._remove(relativePath, entry.type);
+                    this._remove(fullPath, relativePath, entry.type);
                 }
             }
             // Addition.
@@ -299,7 +341,7 @@ class DifferenceEngine {
                         }
                         // Path is not actually a link.
                         else {
-                            this._remove(relativePath, entry.type);
+                            this._remove(fullPath, relativePath, entry.type);
                         }
 
                         return done();
@@ -320,7 +362,7 @@ class DifferenceEngine {
                 }
 
                 // Type mismatch. Remove database entry.
-                this._remove(relativePath, entry.type);
+                this._remove(fullPath, relativePath, entry.type);
             }
 
             return done();
@@ -334,6 +376,12 @@ DifferenceEngine.DirectoryCheck = {
     ADDED:   1,
     REMOVED: 2,
     BOTH:    3,
+};
+
+DifferenceEngine.Change = {
+    ADD:    0,
+    REMOVE: 1,
+    UPDATE: 2,
 };
 
 module.exports = DifferenceEngine;

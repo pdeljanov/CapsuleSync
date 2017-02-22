@@ -108,23 +108,28 @@ class Dispatcher {
         }
     }
 
-    _processChangeNotifications(tree, source, change) {
+    _processChangeNotifications(tree, source, changes) {
         // Advance the clock once.
         this._clock.advance();
 
-        switch (change.action) {
-        case Source.Actions.UPSERT:
-            debug(`Change Notification: Upsert '${change.entry.path}'.`);
-            tree.put(change.entry.path, change.entry.serialize());
-            break;
-        case Source.Actions.REMOVE_IF:
-            debug(`Change Notification: Remove '${change.path}'.`);
-            tree.delSubTree(change.path);
-            break;
-        default:
-            debug(`Unknown change notification received. Action=${change.action}.`);
-            break;
-        }
+        changes.forEach((change) => {
+            switch (change.action) {
+            case Source.Actions.UPSERT:
+                debug(`Change Notification: Upsert '${change.entry.path}'.`);
+                tree.put(change.entry.path, change.entry.serialize());
+                break;
+            case Source.Actions.REMOVE:
+                debug(`Change Notification: Remove '${change.path}'.`);
+                tree.delSubTree(change.path);
+                break;
+            case Source.Actions.SCAN:
+                debug(`Change Notification: Scan '${change.at}'.`);
+                break;
+            default:
+                debug(`Unknown change notification received. Action=${change.action}.`);
+                break;
+            }
+        });
     }
 
     static _initialScan(tree, source, time) {

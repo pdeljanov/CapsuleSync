@@ -87,38 +87,82 @@ class FileSystemSource extends Source {
     startWatch(tree) {
         debug(`[${this._id}] Starting notification service...`);
 
-        // Difference engine event handlers.
-        const remove = relativePath => this.emit('change', { action: Source.Actions.REMOVE_IF, path: relativePath });
-
-        const update = entry => this.emit('change', { action: Source.Actions.UPSERT, entry: entry });
-
-        const add = (fullPath, entry, done) => {
-            if (entry.type === CapsuleEntry.Type.DIRECTORY) {
-                this.emit('deltaScan', { at: fullPath });
-            }
-            else {
-                this.emit('change', { action: Source.Actions.UPSERT, entry: entry });
-            }
-            done();
-        };
-
-        const options = {
-            directoryCheck: DifferenceEngine.DirectoryCheck.BOTH,
-            followLinks:    this._options.followLinks,
-            add:            add,
-            remove:         remove,
-            update:         update,
-        };
-
-        // Create a difference engine that will be used for all watch notifications.
-        const diff = new DifferenceEngine(tree, this._root, options);
-
         // Create a watcher to monitor for change events.
         this._watcher = new Watcher(this._root);
 
         // On-change notification, run the difference engine on each changed path.
         this._watcher.change = (fullPaths) => {
-            fullPaths.forEach(fullPath => diff.path(new PathStack(), fullPath, () => {}));
+            const options = {
+                directoryCheck: DifferenceEngine.DirectoryCheck.BOTH,
+                followLinks:    this._options.followLinks,
+            };
+
+            // Create a difference engine that will be used for all watch notifications.
+            const diff = new DifferenceEngine(tree, this._root, options);
+
+            function removePrefixed(prefix) {
+                while (fullPaths.length > 0) {
+                    if (fullPaths[0].startsWith(prefix)) {
+                        fullPaths.shift();
+                    }
+                    else {
+                        break;
+                    }
+                }
+            }
+
+            function executeDiff(fullPath, done) {
+                // Run the difference engine on the path.
+                diff.path(new PathStack(), fullPath, () => {
+                    // Convert the changes from watcher changes to source changes. Prune the list is required.
+                    const changes = [].concat(...diff.changes().map((change) => {
+                        // Updates become an upsert.
+                        if (change.operation === DifferenceEngine.Change.UPDATE) {
+                            return { action: Source.Actions.UPSERT, entry: change.entry };
+                        }
+                        // Remove is recursive, so skip paths that are prefixed with the removed path.
+                        else if (change.operation === DifferenceEngine.Change.REMOVE) {
+                            removePrefixed(change.fullPath);
+                            return { action: Source.Actions.REMOVE, path: change.relativePath };
+                        }
+                        // Add is an upser for files and links, but recursive for directories.
+                        else if (change.operation === DifferenceEngine.Change.ADD) {
+                            const added = [{ action: Source.Actions.UPSERT, entry: change.entry }];
+
+                            // Since directory adds are recursive, skip paths that are prefixed with the added path.
+                            if (change.entry.type === CapsuleEntry.Type.DIRECTORY) {
+                                added.push({ action: Source.Actions.SCAN, at: change.fullPath });
+                                removePrefixed(change.fullPath);
+                            }
+
+                            return added;
+                        }
+                        return [];
+                    }));
+                    // Clear the difference engine's change list.
+                    diff.clear();
+                    // Return the changes.
+                    done(changes);
+                });
+            }
+
+            function processPaths(done) {
+                const changes = [];
+                (function iteration() {
+                    const fullPath = fullPaths.shift();
+                    if (fullPath) {
+                        executeDiff(fullPath, (additionalChanges) => {
+                            changes.push(additionalChanges);
+                            iteration();
+                        });
+                    }
+                    else {
+                        done([].concat(...changes));
+                    }
+                }());
+            }
+
+            processPaths(this.emit.bind(this, 'change'));
         };
 
         // Load the watcher.
