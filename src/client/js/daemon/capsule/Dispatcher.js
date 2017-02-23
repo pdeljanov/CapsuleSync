@@ -1,12 +1,12 @@
 const debug = require('debug')('Capsule.Dispatcher');
 
-const ChangeLog = require('./ChangeLog.js');
 const Source = require('./sources/Source.js');
 
 class Dispatcher {
 
     constructor(clock) {
         this.sources = [];
+        this._listeners = {};
         this._clock = clock;
         this._queuedScans = [];
         this._activeScan = null;
@@ -16,10 +16,16 @@ class Dispatcher {
         // Append the newly loaded source to the sources list.
         this.sources.push(source);
 
+        this._listeners[source.id] = {
+            initialScan: this.dispatch.bind(this, Dispatcher.Events.INITIAL_SCAN, tree, source),
+            deltaScan:   this.dispatch.bind(this, Dispatcher.Events.DELTA_SCAN, tree, source),
+            change:      this.dispatch.bind(this, Dispatcher.Events.CHANGE_NOTIFICATION, tree, source),
+        };
+
         // Attach event listeners.
-        source.on('initialScan', this.dispatch.bind(this, Dispatcher.Events.INITIAL_SCAN, tree, source));
-        source.on('deltaScan', this.dispatch.bind(this, Dispatcher.Events.DELTA_SCAN, tree, source));
-        source.on('change', this.dispatch.bind(this, Dispatcher.Events.CHANGE_NOTIFICATION, tree, source));
+        source.on('initialScan', this._listeners[source.id].initialScan);
+        source.on('deltaScan', this._listeners[source.id].deltaScan);
+        source.on('change', this._listeners[source.id].change);
 
         // Load the source.
         return source.load()
@@ -34,13 +40,17 @@ class Dispatcher {
     removeSource(removedSource) {
         this.sources = this.sources.filter((source) => {
             if (source.id === removedSource.id) {
-                // TODO: Only remove the event listeners bound in addSource.
-                source.removeListener('initialScan');
-                source.removeListener('deltaScan');
-                source.removeListener('change');
-                return true;
+                // Remove listeners from source.
+                source.removeListener('initialScan', this._listeners[source.id].initialScan);
+                source.removeListener('deltaScan', this._listeners[source.id].deltaScan);
+                source.removeListener('change', this._listeners[source.id].change);
+                // Remove listeners from registry.
+                delete this._listeners[source.id];
+                // Filtering out of source array.
+                return false;
             }
-            return false;
+            // Keep in source array.
+            return true;
         });
     }
 
@@ -81,60 +91,50 @@ class Dispatcher {
 
     _dispatchInitialScan(tree, source) {
         this._queuedScans.push({
-            source:    source,
-            tree:      tree,
-            scanner:   Dispatcher._initialScan.bind(null, tree, source),
-            changeLog: new ChangeLog(Dispatcher.CHANGELOG_MEMORY_LENGTH),
+            source:  source,
+            tree:    tree,
+            scanner: Dispatcher._initialScan.bind(null, tree, source),
         });
         this._crankQueue();
     }
 
     _dispatchDeltaScan(tree, source, options) {
         this._queuedScans.push({
-            source:    source,
-            tree:      tree,
-            scanner:   Dispatcher._deltaScan.bind(null, tree, source, options),
-            changeLog: new ChangeLog(Dispatcher.CHANGELOG_MEMORY_LENGTH),
+            source:  source,
+            tree:    tree,
+            scanner: Dispatcher._deltaScan.bind(null, tree, source, options),
         });
         this._crankQueue();
     }
 
     _dispatchChangeNotification(tree, source, changes) {
-        if (this._activeScan && this._activeScan.source === source) {
-            this._activeScan.changeLog.append(changes);
-        }
-        else {
-            this._processChangeNotifications(tree, source, changes);
-        }
+        this._queuedScans.push({
+            source:  source,
+            tree:    tree,
+            scanner: Dispatcher._change.bind(null, tree, source, changes),
+        });
+        this._crankQueue();
     }
 
-    _processChangeNotifications(tree, source, changes) {
-        // Advance the clock once.
-        this._clock.advance();
-
-        const scans = [];
-
+    static _change(tree, source, changes, time) {
         const futures = changes.map((change) => {
             switch (change.action) {
             case Source.Actions.UPSERT:
                 debug(`Change Notification: Upsert '${change.entry.path}'.`);
+                change.entry.modify(time);
                 return tree.put(change.entry.path, change.entry.serialize());
             case Source.Actions.REMOVE:
                 debug(`Change Notification: Remove '${change.path}'.`);
                 return tree.delSubTree(change.path);
             case Source.Actions.SCAN:
                 debug(`Change Notification: Scan '${change.at}'.`);
-                scans.push(change);
-                return Promise.resolve();
+                return Dispatcher._deltaScan(tree, source, change, time);
             default:
                 debug(`Unknown change notification received. Action=${change.action}.`);
                 return Promise.resolve();
             }
         });
-
-        Promise.all(futures).then(() => {
-            scans.forEach(scan => this._dispatchDeltaScan(tree, source, scan));
-        });
+        return Promise.all(futures);
     }
 
     static _initialScan(tree, source, time) {
@@ -152,7 +152,7 @@ class Dispatcher {
         function add(data) {
             data.modify(time);
             batch.push({ key: data.path, value: data.serialize() });
-            if (batch.length >= Dispatcher.SCAN_COMMIT_QUEUE_LENGTH) {
+            if (batch.length >= Dispatcher.COMMIT_QUEUE_LENGTH) {
                 commit();
             }
             // debug(`\u222B-Scan [${source.id}] insert: ${data.path}`);
@@ -190,7 +190,7 @@ class Dispatcher {
         function upsert(data) {
             data.modify(time);
             batch.push({ key: data.path, value: data.serialize() });
-            if (batch.length >= Dispatcher.SCAN_COMMIT_QUEUE_LENGTH) {
+            if (batch.length >= Dispatcher.COMMIT_QUEUE_LENGTH) {
                 commit();
             }
             debug(`\u0394-Scan [${source.id}] upsert: ${data.path}`);
@@ -233,10 +233,7 @@ class Dispatcher {
 
 }
 
-Dispatcher.CHANGELOG_MEMORY_LENGTH = 128;
-Dispatcher.SCAN_COMMIT_QUEUE_LENGTH = 96;
-
-Dispatcher.WAIT_BEFORE_SCAN = 5 * 1000;
+Dispatcher.COMMIT_QUEUE_LENGTH = 96;
 
 Dispatcher.Events = {
     INITIAL_SCAN:        0,

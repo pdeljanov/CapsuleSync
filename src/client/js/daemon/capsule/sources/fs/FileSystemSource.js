@@ -7,8 +7,10 @@ const IntegralScanner = require('./IntegralScanner.js');
 const DeltaScanner = require('./DeltaScanner.js');
 const DifferenceEngine = require('./DifferenceEngine.js');
 const Watcher = require('./Watcher.js');
+const ExclusionSet = require('../../ExclusionSet.js');
 const { FilterSet } = require('../../FilterSet.js');
 const { CapsuleEntry } = require('../../CapsuleEntry.js');
+
 
 class FileSystemSource extends Source {
 
@@ -21,6 +23,7 @@ class FileSystemSource extends Source {
         };
 
         this.filters = FilterSet.empty();
+        this.exclusions = ExclusionSet.empty();
         this.lastScan = null;
     }
 
@@ -180,6 +183,7 @@ class FileSystemSource extends Source {
             integral.insert = insert;
             integral.commit = commit;
             integral.filter = entry => this.filters.evaluate(entry);
+            integral.exclude = fullPath => this.exclusions.evaluate(fullPath);
 
             integral.run()
                 .then(() => {
@@ -199,6 +203,7 @@ class FileSystemSource extends Source {
             delta.remove = remove;
             delta.commit = commit;
             delta.filter = entry => this.filters.evaluate(entry);
+            delta.exclude = fullPath => this.exclusions.evaluate(fullPath);
 
             delta.run(path)
                 .then(() => {
