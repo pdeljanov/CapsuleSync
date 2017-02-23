@@ -112,23 +112,28 @@ class Dispatcher {
         // Advance the clock once.
         this._clock.advance();
 
-        changes.forEach((change) => {
+        const scans = [];
+
+        const futures = changes.map((change) => {
             switch (change.action) {
             case Source.Actions.UPSERT:
                 debug(`Change Notification: Upsert '${change.entry.path}'.`);
-                tree.put(change.entry.path, change.entry.serialize());
-                break;
+                return tree.put(change.entry.path, change.entry.serialize());
             case Source.Actions.REMOVE:
                 debug(`Change Notification: Remove '${change.path}'.`);
-                tree.delSubTree(change.path);
-                break;
+                return tree.delSubTree(change.path);
             case Source.Actions.SCAN:
                 debug(`Change Notification: Scan '${change.at}'.`);
-                break;
+                scans.push(change);
+                return Promise.resolve();
             default:
                 debug(`Unknown change notification received. Action=${change.action}.`);
-                break;
+                return Promise.resolve();
             }
+        });
+
+        Promise.all(futures).then(() => {
+            scans.forEach(scan => this._dispatchDeltaScan(tree, source, scan));
         });
     }
 

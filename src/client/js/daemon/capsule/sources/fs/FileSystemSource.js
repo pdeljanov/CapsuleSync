@@ -101,13 +101,8 @@ class FileSystemSource extends Source {
             const diff = new DifferenceEngine(tree, this._root, options);
 
             function removePrefixed(prefix) {
-                while (fullPaths.length > 0) {
-                    if (fullPaths[0].startsWith(prefix)) {
-                        fullPaths.shift();
-                    }
-                    else {
-                        break;
-                    }
+                while (fullPaths.length > 0 && fullPaths[0].startsWith(prefix)) {
+                    fullPaths.shift();
                 }
             }
 
@@ -115,7 +110,7 @@ class FileSystemSource extends Source {
                 // Run the difference engine on the path.
                 diff.path(new PathStack(), fullPath, () => {
                     // Convert the changes from watcher changes to source changes. Prune the list is required.
-                    const changes = [].concat(...diff.changes().map((change) => {
+                    const changes = diff.changes().map((change) => {
                         // Updates become an upsert.
                         if (change.operation === DifferenceEngine.Change.UPDATE) {
                             return { action: Source.Actions.UPSERT, entry: change.entry };
@@ -127,18 +122,15 @@ class FileSystemSource extends Source {
                         }
                         // Add is an upser for files and links, but recursive for directories.
                         else if (change.operation === DifferenceEngine.Change.ADD) {
-                            const added = [{ action: Source.Actions.UPSERT, entry: change.entry }];
-
                             // Since directory adds are recursive, skip paths that are prefixed with the added path.
                             if (change.entry.type === CapsuleEntry.Type.DIRECTORY) {
-                                added.push({ action: Source.Actions.SCAN, at: change.fullPath });
                                 removePrefixed(change.fullPath);
+                                return { action: Source.Actions.SCAN, at: change.fullPath };
                             }
-
-                            return added;
+                            return { action: Source.Actions.UPSERT, entry: change.entry };
                         }
-                        return [];
-                    }));
+                        return {};
+                    });
                     // Clear the difference engine's change list.
                     diff.clear();
                     // Return the changes.

@@ -195,6 +195,10 @@ class DeltaScanner {
         return done();
     }
 
+    _initialScan(fullPath) {
+        return new Promise(resolve => this._addDirectory(fullPath, null, resolve));
+    }
+
     _scanSubTree(subTreePath) {
         // Setup DifferenceEngine options.
         const options = {
@@ -212,6 +216,7 @@ class DeltaScanner {
 
         const relativeSubTreePath = PathTools.stripRoot(subTreePath, this._root);
 
+        // Scan the tree out of the database and perform the difference operation.
         return this._tree.scanSubTree(relativeSubTreePath, (data, next) => {
             const relativePath = data.key;
             const fullPath = PathTools.appendRoot(this._root, relativePath);
@@ -238,7 +243,10 @@ class DeltaScanner {
 
             // Run the difference engine on the entry.
             return diff.entry(this._stack, fullPath, entry, next);
-        });
+        })
+        // Database scanning complete. If nothing was scanned out, that means the database wasn't populated.
+        // Manually add the root directory in that case which will trigger a full scan.
+        .then(() => (this._scanned === 0 ? this._initialScan(subTreePath) : Promise.resolve()));
     }
 
     run(fullPath) {
