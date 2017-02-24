@@ -224,7 +224,7 @@ class Dispatcher {
                 debug(`\u0394-Scan [${source.id}] started at '${options.at}'.`);
             }
 
-            source.delta(tree, scanPath, upsert, remove, commit, progress)
+            source.delta(tree, options, upsert, remove, commit, progress)
                 .then(commit)
                 .then(resolve)
                 .catch(reject);

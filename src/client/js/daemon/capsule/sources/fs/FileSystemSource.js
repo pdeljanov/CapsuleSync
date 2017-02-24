@@ -11,7 +11,6 @@ const ExclusionSet = require('../../ExclusionSet.js');
 const { FilterSet } = require('../../FilterSet.js');
 const { CapsuleEntry } = require('../../CapsuleEntry.js');
 
-
 class FileSystemSource extends Source {
 
     constructor(id, root) {
@@ -21,9 +20,9 @@ class FileSystemSource extends Source {
         this._options = {
             followLinks: true,
         };
-
-        this.filters = FilterSet.empty();
-        this.exclusions = ExclusionSet.empty();
+        this._filters = FilterSet.empty();
+        this._exclusions = ExclusionSet.empty();
+        this._watcher = null;
         this.lastScan = null;
     }
 
@@ -70,9 +69,22 @@ class FileSystemSource extends Source {
         });
     }
 
-    applyFilter(filters) {
-        this.filters = filters;
-        this.emit('deltaScan');
+    get filters() {
+        return this._filters;
+    }
+
+    filter(filters) {
+        this._filters = filters;
+        this.emit('deltaScan', { deep: true });
+    }
+
+    get exclusions() {
+        return this._exclusions;
+    }
+
+    exclude(exclusions) {
+        this._exclusions = exclusions;
+        this.emit('deltaScan', { deep: true });
     }
 
     unload() {
@@ -182,8 +194,8 @@ class FileSystemSource extends Source {
             integral.progress = progress || (() => {});
             integral.insert = insert;
             integral.commit = commit;
-            integral.filter = entry => this.filters.evaluate(entry);
-            integral.exclude = fullPath => this.exclusions.evaluate(fullPath);
+            integral.filter = entry => this._filters.evaluate(entry);
+            integral.exclude = fullPath => this._exclusions.evaluate(fullPath);
 
             integral.run()
                 .then(() => {
@@ -194,16 +206,19 @@ class FileSystemSource extends Source {
         });
     }
 
-    delta(tree, path, upsert, remove, commit, progress) {
+    delta(tree, options, upsert, remove, commit, progress) {
         return new Promise((resolve, reject) => {
-            const delta = new DeltaScanner(this._root, tree, { followLinks: true, progressInterval: 500 });
+            const deep = (options && options.deep) || false;
+            const delta = new DeltaScanner(this._root, tree, { deep: deep, followLinks: true, progressInterval: 500 });
 
             delta.progress = progress || (() => {});
             delta.upsert = upsert;
             delta.remove = remove;
             delta.commit = commit;
-            delta.filter = entry => this.filters.evaluate(entry);
-            delta.exclude = fullPath => this.exclusions.evaluate(fullPath);
+            delta.filter = entry => this._filters.evaluate(entry);
+            delta.exclude = fullPath => this._exclusions.evaluate(fullPath);
+
+            const path = (options && options.at) || null;
 
             delta.run(path)
                 .then(() => {
@@ -227,7 +242,6 @@ class FileSystemSource extends Source {
         return source;
     }
 }
-
 
 FileSystemSource.TYPE_IDENTIFIER = 'fs-1';
 

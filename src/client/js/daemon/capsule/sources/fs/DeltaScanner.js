@@ -14,6 +14,7 @@ class DeltaScanner {
         this._tree = tree;
 
         this._options = {
+            deep:              (options.deep || false),
             followLinks:       (options.followLinks || false),
             concurrency:       (options.concurrency || 8),
             progressInterval:  (options.progressInterval || 0),
@@ -202,6 +203,7 @@ class DeltaScanner {
     _scanSubTree(subTreePath) {
         // Setup DifferenceEngine options.
         const options = {
+            deep:           this._options.deep,
             directoryCheck: DifferenceEngine.DirectoryCheck.ADDED,
             followLinks:    this._options.followLinks,
             concurrency:    this._options.concurrency,

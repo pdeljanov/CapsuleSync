@@ -10,6 +10,7 @@ const IdGenerator = require('../util/IdGenerator.js');
 const Dispatcher = require('./Dispatcher.js');
 const VectorClock = require('./VectorClock.js');
 const { FilterSet } = require('./FilterSet.js');
+const ExclusionSet = require('./ExclusionSet.js');
 const AppPaths = require('../util/AppPaths.js');
 
 function pad(n, width, z) {
@@ -22,43 +23,20 @@ class Capsule extends EventEmitter {
 
     constructor(identifier) {
         super();
+
         const fileName = `${identifier}.db`;
         const filePath = AppPaths.getPathAtLocation(AppPaths.Locations.CAPSULE_ROOT, fileName);
 
         this._db = new Database(filePath);
+        this._filters = FilterSet.empty();
+        this._exclusions = ExclusionSet.empty();
 
         debug(`Loading Capsule database at: ${filePath}.`);
     }
 
     open(createInfo, device) {
-        return new Promise((resolve, reject) => {
-            debug('Opening Capsule database.');
-            this._db.open()
-                .then(() => checkDatabase(this._db))
-                .then(() => loadDispatcher(this._db, 0))
-                .then((dispatcher) => {
-                    this._dispatcher = dispatcher;
-                    return Promise.resolve();
-                })
-                .then(() => loadFilters(this._db))
-                .then((filterSet) => {
-                    this._filters = filterSet;
-                    return Promise.resolve();
-                })
-                .then(() => loadSources(this._db, this._filters))
-                .then(sources => Promise.all(sources.map(source => this._addSource(source))))
-                .then(() => {
-                    debug('Capsule database opened!');
-                    resolve();
-                })
-                .catch((err) => {
-                    debug(`Capsule database failed to open with error: ${err}`);
-                    reject();
-                });
-        });
-
         // Create a new database from scratch.
-        function createNewDatabase(db) {
+        const createNewDatabase = (db) => {
             debug('Creating initial database...');
 
             return db.config('capsule.core.id').set(IdGenerator(Capsule.ID_LENGTH))
@@ -66,6 +44,7 @@ class Capsule extends EventEmitter {
                 .then(() => db.config('capsule.core.name').set(createInfo.capsuleName))
                 .then(() => db.config('capsule.core.desc').set(createInfo.capsuleDescription))
                 .then(() => db.config('capsule.core.filters').set(FilterSet.empty().serialize()))
+                .then(() => db.config('capsule.core.exclusions').set(ExclusionSet.empty().serialize()))
                 .then(() => db.config('capsule.core.sources').set([]))
                 .then(() => db.config('capsule.user.id').set(createInfo.userId))
                 .then(() => db.config('capsule.user.name').set(createInfo.userName))
@@ -77,19 +56,19 @@ class Capsule extends EventEmitter {
                     subscribers[device.id] = 0;
                     return db.config('capusle.sync.subscribers').set(subscribers);
                 });
-        }
+        };
 
         // Upgrade an existing database to the latest version.
-        function upgradeDatabase(db, version) {
+        const upgradeDatabase = (db, version) => {
             debug(`Upgrading database from version ${version} to ${Capsule.DATABASE_VERSION}...`);
             return db.config('capsule.core.version').set(Capsule.DATABASE_VERSION);
-        }
+        };
 
         // Checks if the database was created, and that the version is up-to-date.
-        function checkDatabase(db) {
+        const checkDatabase = db =>
             // A created data will contain a version number. If it does, check if the
             // schema needs to be upgraded. If the database does not exist, create it.
-            return db.config('capsule.core.version').get()
+            db.config('capsule.core.version').get()
                 .then((version) => {
                     if (version < Capsule.DATABASE_VERSION) {
                         return upgradeDatabase(db, version);
@@ -97,33 +76,57 @@ class Capsule extends EventEmitter {
                     return Promise.resolve();
                 })
                 .catch(() => createNewDatabase(db));
-        }
 
-        // Load filters.
-        function loadFilters(db) {
-            return db.config('capsule.core.filters').get()
-                .then(filters => FilterSet.deserialize(filters));
-        }
+        // Load filter set.
+        const loadFilters = db =>
+            db.config('capsule.core.filters').get()
+                .then((filters) => {
+                    this._filters = FilterSet.deserialize(filters);
+                    return Promise.resolve();
+                });
+
+        // Load exclusion set.
+        const loadExclusions = db =>
+            db.config('capsule.core.exclusions').get()
+                .then((exclusions) => {
+                    this._exclusions = ExclusionSet.deserialize(exclusions);
+                    return Promise.resolve();
+                });
 
         // Load sources.
-        function loadSources(db, withFilters) {
-            return db.config('capsule.core.sources').get()
-                .then(serializedSources => serializedSources.map((serializedSource) => {
-                    const source = SourceFactory(serializedSource);
-                    source.applyFilter(withFilters);
-                    return source;
-                }));
-        }
+        const loadSources = db =>
+            db.config('capsule.core.sources').get()
+                .then(sources => sources.map(source => SourceFactory(source)));
 
         // Load the dispatcher
-        function loadDispatcher(db, deviceNumericId) {
-            return db.config('capsule.sync.clock').get()
+        const loadDispatcher = (db, deviceNumericId) =>
+            db.config('capsule.sync.clock').get()
                 .then((currentVector) => {
                     const clock = new VectorClock(deviceNumericId, currentVector);
                     clock.on('tick', vector => db.config('capsule.sync.clock').set(vector));
-                    return new Dispatcher(clock);
+                    this._dispatcher = new Dispatcher(clock);
+                    return Promise.resolve();
                 });
-        }
+
+        // Open the database now.
+        return new Promise((resolve, reject) => {
+            debug('Opening Capsule database.');
+            this._db.open()
+                .then(() => checkDatabase(this._db))
+                .then(() => loadDispatcher(this._db, 0))
+                .then(() => loadFilters(this._db))
+                .then(() => loadExclusions(this._db))
+                .then(() => loadSources(this._db))
+                .then(sources => Promise.all(sources.map(source => this._addSource(source))))
+                .then(() => {
+                    debug('Capsule database opened!');
+                    resolve();
+                })
+                .catch((err) => {
+                    debug(`Capsule database failed to open with error: ${err}`);
+                    reject();
+                });
+        });
     }
 
     close() {
@@ -173,7 +176,8 @@ class Capsule extends EventEmitter {
 
         return this._db.getIndexedPartition(prefix)
             .then((partition) => {
-                addedSource.applyFilter(this._filters);
+                addedSource.filter(this._filters);
+                addedSource.exclude(this._exclusions);
                 return this._dispatcher.addSource(new TreeAdapter(partition), addedSource);
             });
     }
@@ -222,11 +226,24 @@ class Capsule extends EventEmitter {
         return this._filters;
     }
 
-    applyFilter(filterSet) {
+    filter(filterSet) {
         return this._db.config('capsule.core.filters').set(filterSet.serialize())
             .then(() => {
                 this._filters = filterSet;
-                this._dispatcher.sources.forEach(source => source.applyFilter(filterSet));
+                this._dispatcher.sources.forEach(source => source.filter(filterSet));
+                return Promise.resolve();
+            });
+    }
+
+    get exclusions() {
+        return this._exclusions;
+    }
+
+    exclude(exclusions) {
+        return this._db.config('capsule.core.exclusions').set(exclusions.serialize())
+            .then(() => {
+                this._exclusions = exclusions;
+                this._dispatcher.sources.forEach(source => source.exclude(exclusions));
                 return Promise.resolve();
             });
     }

@@ -24,6 +24,7 @@ class DifferenceEngine {
         this._root = root;
 
         this._options = {
+            deep:             Object.prototype.hasOwnProperty.call(options, 'deep') ? options.deep : false,
             directoryAdds:    true,
             directoryRemoves: true,
             followLinks:      Object.prototype.hasOwnProperty.call(options, 'followLinks') ? options.followLinks : true,
@@ -306,11 +307,15 @@ class DifferenceEngine {
                 // Directory update.
                 else if (stat.isDirectory() && entry.type === CapsuleEntry.Type.DIRECTORY) {
                     // Check if the directory metadata has changed.
-                    if (!entry.isIdentical(stat)) {
+                    const isIdentical = entry.isIdentical(stat);
+
+                    if (!isIdentical) {
                         entry.update(stat);
                         this._update(entry);
+                    }
 
-                        // Check for modifications to the directory contents if requested.
+                    // Check for modifications to the directory contents if requested.
+                    if (!isIdentical || this._options.deep) {
                         if (this._options.directoryAdds || this._options.directoryRemoves) {
                             return this._calculateDirectoryDelta(fullPath, relativePath, (additions, removals) => {
                                 this._processAddedPaths(stack, additions, () => {
