@@ -2,7 +2,6 @@
 // const debug = require('debug')('Capsule.FSDB.TreeAdapter');
 
 const xxhash = require('xxhash');
-// const endStream = require('end-stream');
 const through2 = require('through2');
 
 const { Buffer } = require('buffer');
@@ -87,18 +86,26 @@ class TreeAdapter {
     }
 
     scanSubTree(path, cb) {
-        return new Promise((resolve) => {
+        return new Promise((resolve, reject) => {
             const options = {
                 start: path,
                 end:   `${path}\xFF`,
             };
 
-            this._partition.createReadStream(options)
-                .pipe(through2.obj((data, enc, next) => {
-                    data.value = data.value.d;
-                    cb(data, next);
-                }))
-                .on('finish', resolve);
+            const stream = this._partition.createReadStream(options);
+            stream.pipe(through2.obj((data, enc, next) => {
+                data.value = data.value.d;
+                cb(data, (err) => {
+                    if (err) {
+                        stream.destroy();
+                        reject(err);
+                    }
+                    else {
+                        next();
+                    }
+                });
+            }))
+            .on('finish', resolve);
 
             // this._partition.createReadStream(options)
             //     .pipe(endStream((data, next) => {

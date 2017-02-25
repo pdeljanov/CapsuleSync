@@ -5,6 +5,7 @@ const fs = require('original-fs');
 const path = require('path');
 const async = require('async');
 
+const Errors = require('../../../Errors.js');
 const PathTools = require('../../../fs/PathTools.js');
 const PathStack = require('./PathStack.js');
 const Link = require('../../../fs/Link.js');
@@ -33,6 +34,8 @@ class IntegralScanner {
         this.exclude = (() => false);
         this.filter = (() => true);
 
+        this._isCancelled = false;
+        this._isRunning = false;
         this._pathStack = null;
         this._traversalStack = [];
 
@@ -237,29 +240,53 @@ class IntegralScanner {
         });
     }
 
+    get isRunning() {
+        return this._isRunning;
+    }
+
+    get wasCancelled() {
+        return this._isCancelled;
+    }
+
+    cancel() {
+        this._isCancelled = true;
+    }
+
     run(pathStack) {
-        return new Promise((resolve) => {
+        assert.strictEqual(this.isRunning, false, 'Already running.');
+
+        return new Promise((resolve, reject) => {
             // Reset stats to zero values.
             this._resetStats();
             this._startStats();
 
+            this._isRunning = true;
+            this._isCancelled = false;
             this._pathStack = pathStack || new PathStack();
             this._traversalStack = [];
 
             const runNext = () => {
-                if (this._traversalStack.length > 0) {
+                // Process the next directory if there is one and not cancelled.
+                if (this._traversalStack.length > 0 && !this._isCancelled) {
                     const nextPath = this._traversalStack.pop();
 
                     this._pathStack.interogatePath(nextPath);
                     this._traverseSubTree(nextPath, runNext);
                 }
+                // If there is no more directories or the scan cancelled, exit.
                 else {
                     this._endStats();
 
+                    this._isRunning = false;
                     this._pathStack = null;
                     this._traversalStack = [];
 
-                    resolve();
+                    if (this._isCancelled) {
+                        reject(Errors.CANCELLED);
+                    }
+                    else {
+                        resolve();
+                    }
                 }
             };
 

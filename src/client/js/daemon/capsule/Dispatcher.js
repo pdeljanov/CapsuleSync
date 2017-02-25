@@ -38,20 +38,28 @@ class Dispatcher {
     }
 
     removeSource(removedSource) {
+        let cancellation = Promise.resolve();
+
         this.sources = this.sources.filter((source) => {
             if (source.id === removedSource.id) {
                 // Remove listeners from source.
                 source.removeListener('initialScan', this._listeners[source.id].initialScan);
                 source.removeListener('deltaScan', this._listeners[source.id].deltaScan);
                 source.removeListener('change', this._listeners[source.id].change);
+                // Remove queued scans.
+                this._queuedScans = this._queuedScans.filter(scan => scan.source !== removedSource);
                 // Remove listeners from registry.
                 delete this._listeners[source.id];
+                // Store the cancellation token;
+                cancellation = removedSource.cancelAllScans();
                 // Filtering out of source array.
                 return false;
             }
             // Keep in source array.
             return true;
         });
+
+        return cancellation.then(() => removedSource.unload());
     }
 
     dispatch(eventType, tree, source, data) {
@@ -80,11 +88,16 @@ class Dispatcher {
                 this._clock.advance();
 
                 // Perform the scan.
-                this._activeScan.scanner(time).then(() => {
+                this._activeScan.scanner(time)
+                    // Catch errors and print a message.
+                    .catch((err) => {
+                        debug(`Dispatch failed with error: ${err}.`);
+                    })
                     // Once complete, reset the active scan and crank the queue.
-                    this._activeScan = null;
-                    this._crankQueue();
-                });
+                    .then(() => {
+                        this._activeScan = null;
+                        this._crankQueue();
+                    });
             });
         }
     }
@@ -169,10 +182,8 @@ class Dispatcher {
             }
         }
 
-        return new Promise((resolve, reject) => {
-            debug(`\u222B-Scan [${source.id}] started.`);
-            source.integral(add, commit, progress).then(commit).then(resolve).catch(reject);
-        });
+        debug(`\u222B-Scan [${source.id}] started.`);
+        return source.integral(add, commit, progress).then(commit);
     }
 
     static _deltaScan(tree, source, options, time) {
@@ -214,21 +225,14 @@ class Dispatcher {
             }
         }
 
-        return new Promise((resolve, reject) => {
-            const scanPath = (options && options.at) ? options.at : null;
-
-            if (!scanPath) {
-                debug(`\u0394-Scan [${source.id}] started.`);
-            }
-            else {
-                debug(`\u0394-Scan [${source.id}] started at '${options.at}'.`);
-            }
-
-            source.delta(tree, options, upsert, remove, commit, progress)
-                .then(commit)
-                .then(resolve)
-                .catch(reject);
-        });
+        const scanPath = (options && options.at) ? options.at : null;
+        if (!scanPath) {
+            debug(`\u0394-Scan [${source.id}] started.`);
+        }
+        else {
+            debug(`\u0394-Scan [${source.id}] started at '${options.at}'.`);
+        }
+        return source.delta(tree, options, upsert, remove, commit, progress).then(commit);
     }
 
 }

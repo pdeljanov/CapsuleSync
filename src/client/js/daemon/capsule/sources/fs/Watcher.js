@@ -9,9 +9,8 @@ class Watcher {
         this._root = root;
     }
 
-    _handleError(errors) {
-        debug('Error received.');
-        console.log(errors);
+    _handleError(error) {
+        debug(`Notified of watch error: '${error}'.`);
     }
 
     static _getAffectedPaths(events) {
@@ -48,6 +47,15 @@ class Watcher {
                 reject();
             });
         });
+    }
+
+    unload() {
+        if (this._watcher) {
+            const watcher = this._watcher;
+            this._watcher = null;
+            return watcher.stop();
+        }
+        return Promise.resolve();
     }
 
 }

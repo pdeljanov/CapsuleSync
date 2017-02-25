@@ -1,6 +1,7 @@
 const debug = require('debug')('Capsule.Sources.FileSystem.FileSystemSource');
 const fs = require('original-fs');
 
+const Errors = require('../../../Errors.js');
 const Source = require('../Source.js');
 const PathTools = require('../../../fs/PathTools.js');
 const PathStack = require('./PathStack.js');
@@ -20,6 +21,7 @@ class FileSystemSource extends Source {
         this._root = PathTools.normalize(root);
         this._watcher = null;
         this._lastScan = null;
+        this._runningScans = [];
 
         this._options = {
             followLinks: (options && Object.prototype.hasOwnProperty.call(options, 'followLinks')) ?
@@ -41,12 +43,12 @@ class FileSystemSource extends Source {
                 // Error if the root does not exist.
                 if (err && err.code === 'ENOENT') {
                     debug(`[${this._id}] Source path does not exist.`);
-                    reject(Source.ERRORS.DOES_NOT_EXIST);
+                    reject(Errors.PATH_DOES_NOT_EXIST);
                 }
                 // Error if the permissions prevent access to the root.
                 else if (err && err.code === 'EACCES') {
                     debug(`[${this._id}] Access denied to source path.`);
-                    reject(Source.ERRORS.ACCESS_DENIED);
+                    reject(Errors.ACCESS_DENIED);
                 }
                 // Loaded successfully.
                 else {
@@ -73,6 +75,15 @@ class FileSystemSource extends Source {
         });
     }
 
+    unload() {
+        debug(`[${this._id}] Unloading FileSystemSource...`);
+        return this.cancelAllScans()
+            .then(() => this.stopWatch())
+            .then(() => {
+                debug(`[${this._id}] FileSystemSource unloaded successfully!`);
+            });
+    }
+
     get lastScan() {
         return this._lastScan;
     }
@@ -93,18 +104,6 @@ class FileSystemSource extends Source {
     exclude(exclusions) {
         this._exclusions = exclusions;
         this.emit('deltaScan', { forceDirectoryContents: true });
-    }
-
-    unload() {
-
-    }
-
-    enable() {
-
-    }
-
-    disable() {
-
     }
 
     startWatch(tree) {
@@ -202,69 +201,106 @@ class FileSystemSource extends Source {
     }
 
     stopWatch() {
-
+        if (this._watcher) {
+            debug(`[${this._id}] Stopping notification service...`);
+            return this._watcher.unload().then(() => {
+                this.watcher = null;
+                debug(`[${this._id}] Stopped notification service!`);
+            });
+        }
+        return Promise.resolve();
     }
 
-    _scanComplete() {
-        const currentDate = Date();
-        this._lastScan = currentDate;
-        this.emit('scanComplete', currentDate);
+    _scanStarted(scanner, coverage) {
+        this._runningScans.push(scanner);
+        this.emit('scanStarted', coverage);
+    }
+
+    _scanFinished(scanner, coverage) {
+        this._runningScans.splice(this._runningScans.indexOf(scanner), 1);
+        if (coverage === Source.ScanCoverage.FULL) {
+            const currentDate = Date();
+            this._lastScan = currentDate;
+        }
+        this.emit('scanFinished', coverage);
+    }
+
+    cancelAllScans() {
+        return new Promise((resolve) => {
+            const listener = () => {
+                if (this._runningScans.length === 0) {
+                    this.removeListener('scanFinished', listener);
+                    debug(`[${this._id}] Scan(s) successfully cancelled!`);
+                    resolve();
+                }
+            };
+
+            if (this._runningScans.length === 0) {
+                resolve();
+            }
+            else {
+                debug(`[${this._id}] Cancelling all (${this._runningScans.length}) running scan(s)...`);
+                this._runningScans.forEach(scanner => scanner.cancel());
+                this.on('scanFinished', listener);
+            }
+        });
     }
 
     integral(insert, commit, progress) {
-        return new Promise((resolve, reject) => {
-            // Options for the Integral scanner.
-            const options = {
-                followLinks:      this._options.followLinks,
-                progressInterval: 500,
-            };
+        // Options for the Integral scanner.
+        const options = {
+            followLinks:      this._options.followLinks,
+            progressInterval: 500,
+        };
 
-            const integral = new IntegralScanner(this._root, options);
+        const integral = new IntegralScanner(this._root, options);
 
-            integral.progress = progress || (() => {});
-            integral.insert = insert;
-            integral.commit = commit;
-            integral.filter = entry => this._filters.evaluate(entry);
-            integral.exclude = fullPath => this._exclusions.evaluate(fullPath);
+        integral.progress = progress || (() => {});
+        integral.insert = insert;
+        integral.commit = commit;
+        integral.filter = entry => this._filters.evaluate(entry);
+        integral.exclude = fullPath => this._exclusions.evaluate(fullPath);
 
-            integral.run()
-                .then(() => {
-                    this._scanComplete();
-                    resolve();
-                })
-                .catch(reject);
-        });
+        this._scanStarted(integral, Source.ScanCoverage.FULL);
+        return integral.run()
+            .then(() => {
+                this._scanFinished(integral, Source.ScanCoverage.FULL);
+            })
+            .catch((err) => {
+                this._scanFinished(integral, Source.ScanCoverage.PARTIAL);
+                return Promise.reject(err);
+            });
     }
 
     delta(tree, options, upsert, remove, commit, progress) {
-        return new Promise((resolve, reject) => {
-            // Options for the Delta scanner.
-            const deltaOptions = {
-                forceDirectoryContents: (options && options.forceDirectoryContents) || false,
-                followLinks:            this._options.followLinks,
-                progressInterval:       500,
-            };
+        // Options for the Delta scanner.
+        const deltaOptions = {
+            forceDirectoryContents: (options && options.forceDirectoryContents) || false,
+            followLinks:            this._options.followLinks,
+            progressInterval:       500,
+        };
 
-            const delta = new DeltaScanner(this._root, tree, deltaOptions);
+        const delta = new DeltaScanner(this._root, tree, deltaOptions);
 
-            delta.progress = progress || (() => {});
-            delta.upsert = upsert;
-            delta.remove = remove;
-            delta.commit = commit;
-            delta.filter = entry => this._filters.evaluate(entry);
-            delta.exclude = fullPath => this._exclusions.evaluate(fullPath);
+        delta.progress = progress || (() => {});
+        delta.upsert = upsert;
+        delta.remove = remove;
+        delta.commit = commit;
+        delta.filter = entry => this._filters.evaluate(entry);
+        delta.exclude = fullPath => this._exclusions.evaluate(fullPath);
 
-            const path = (options && options.at) || null;
+        const path = (options && options.at) || null;
+        const type = (!path || path === this._root) ? Source.ScanCoverage.FULL : Source.ScanCoverage.PARTIAL;
 
-            delta.run(path)
-                .then(() => {
-                    if (!path || path === this._root) {
-                        this._scanComplete();
-                    }
-                    resolve();
-                })
-                .catch(reject);
-        });
+        this._scanStarted(delta, type);
+        return delta.run(path)
+            .then(() => {
+                this._scanFinished(delta, type);
+            })
+            .catch((err) => {
+                this._scanFinished(delta, Source.ScanCoverage.PARTIAL);
+                return Promise.reject(err);
+            });
     }
 
     serialize() {
