@@ -14,11 +14,11 @@ class DeltaScanner {
         this._tree = tree;
 
         this._options = {
-            deep:              (options.deep || false),
-            followLinks:       (options.followLinks || false),
-            concurrency:       (options.concurrency || 8),
-            progressInterval:  (options.progressInterval || 0),
-            junctionDetection: false,
+            forceDirectoryContents: (options.forceDirectoryContents || false),
+            followLinks:            (options.followLinks || false),
+            concurrency:            (options.concurrency || 8),
+            progressInterval:       (options.progressInterval || 0),
+            junctionDetection:      false,
         };
 
         this.progress = (() => {});
@@ -106,8 +106,9 @@ class DeltaScanner {
         this._numIgnored += 1;
     }
 
-    _update(entry) {
+    _update(fullPath, entry, done) {
         this.upsert(entry);
+        return done();
     }
 
     _removeCount(type) {
@@ -126,9 +127,10 @@ class DeltaScanner {
         }
     }
 
-    _remove(fullPath, relativePath, type) {
+    _remove(fullPath, relativePath, type, done) {
         this._removeCount(type);
         this.remove(relativePath);
+        return done();
     }
 
     _add(path, entry, done) {
@@ -145,54 +147,46 @@ class DeltaScanner {
     }
 
     _addFile(entry, done) {
-        if (this.filter(entry)) {
-            this.upsert(entry);
-            this._addedFiles += 1;
-        }
-        return done();
+        this._addedFiles += 1;
+        this.upsert(entry);
+        done();
     }
 
     _addDirectory(path, entry, done) {
-        if (!this.exclude(path)) {
-            const adjustedRoot = PathTools.stripRoot(path, this._root);
+        const adjustedRoot = PathTools.stripRoot(path, this._root);
 
-            const scanner = new IntegralScanner(path, this._options);
+        const scanner = new IntegralScanner(path, this._options);
 
-            scanner.insert = (scannedEntry) => {
-                scannedEntry.path = PathTools.appendRoot(adjustedRoot, scannedEntry.path);
-                this.upsert(scannedEntry);
-            };
+        scanner.insert = (scannedEntry) => {
+            scannedEntry.path = PathTools.appendRoot(adjustedRoot, scannedEntry.path);
+            this.upsert(scannedEntry);
+        };
 
-            let last = scanner.stats();
-            scanner.progress = (p) => {
-                this._addedFiles += (p.files - last.files);
-                this._addedDirectories += (p.directories - last.directories);
-                this._addedSoftLinks += (p.softLinks - last.softLinks);
-                this._numIgnored += (p.ignored - last.ignored);
-                this._errors += (p.errors - last.errors);
-                last = p;
-            };
+        let last = scanner.stats();
+        scanner.progress = (p) => {
+            this._addedFiles += (p.files - last.files);
+            this._addedDirectories += (p.directories - last.directories);
+            this._addedSoftLinks += (p.softLinks - last.softLinks);
+            this._numIgnored += (p.ignored - last.ignored);
+            this._errors += (p.errors - last.errors);
+            last = p;
+        };
 
-            scanner.exclude = this.exclude;
-            scanner.filter = this.filter;
-            scanner.commit = this.commit;
+        scanner.exclude = this.exclude;
+        scanner.filter = this.filter;
+        scanner.commit = this.commit;
 
-            return scanner.run(this._stack)
-                .then(done)
-                .catch(() => {
-                    debug(`Failed to scan: '${path}'.`);
-                    done();
-                });
-        }
-
-        return done();
+        return scanner.run(this._stack)
+            .then(done)
+            .catch(() => {
+                debug(`Failed to scan: '${path}'.`);
+                done();
+            });
     }
 
     _addUnfollowedSymlink(entry, done) {
-        if (this.filter(entry)) {
-            this._addedSoftLinks += 1;
-            this.upsert(entry);
-        }
+        this._addedSoftLinks += 1;
+        this.upsert(entry);
         return done();
     }
 
@@ -203,15 +197,17 @@ class DeltaScanner {
     _scanSubTree(subTreePath) {
         // Setup DifferenceEngine options.
         const options = {
-            deep:           this._options.deep,
-            directoryCheck: DifferenceEngine.DirectoryCheck.ADDED,
-            followLinks:    this._options.followLinks,
-            concurrency:    this._options.concurrency,
-            add:            this._add.bind(this),
-            remove:         this._remove.bind(this),
-            update:         this._update.bind(this),
-            error:          this._error.bind(this),
-            ignore:         this._ignore.bind(this),
+            forceDirectoryContents: this._options.forceDirectoryContents,
+            directoryContents:      DifferenceEngine.DirectoryContents.ADDED,
+            followLinks:            this._options.followLinks,
+            concurrency:            this._options.concurrency,
+            exclude:                this.exclude.bind(this),
+            filter:                 this.filter.bind(this),
+            add:                    this._add.bind(this),
+            remove:                 this._remove.bind(this),
+            update:                 this._update.bind(this),
+            error:                  this._error.bind(this),
+            ignore:                 this._ignore.bind(this),
         };
 
         const diff = new DifferenceEngine(this._tree, this._root, options);
@@ -230,16 +226,6 @@ class DeltaScanner {
             // may be safely skipped as it would be considered deleted.
             if (this._lastRemovedPrefix && fullPath.startsWith(this._lastRemovedPrefix)) {
                 this._removeCount(entry.type);
-                return next();
-            }
-            // Directory removal due to exclusion.
-            else if (entry.type === CapsuleEntry.Type.DIRECTORY && this.exclude(fullPath)) {
-                this._remove(fullPath, relativePath, entry.type);
-                return next();
-            }
-            // File or link removal due to filter.
-            else if (entry.type !== CapsuleEntry.Type.DIRECTORY && !this.filter(entry)) {
-                this._remove(fullPath, relativePath, entry.type);
                 return next();
             }
 

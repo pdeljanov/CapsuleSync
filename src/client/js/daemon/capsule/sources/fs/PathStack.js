@@ -47,7 +47,7 @@ class PathStack {
             // Remove paths that prefix the root 'fromPath' path.
             while (traverse.length > 0) {
                 // The head of the traverse array fully prefixes fromPath, this may be removed.
-                if (fromPath.startsWith(traverse[0])) {
+                if (fromPath.startsWith(traverse[0]) && fromPath !== traverse[0]) {
                     traverse.shift();
                 }
                 // The head of the traverse array is the same as from, or is completely different than from.
@@ -73,6 +73,8 @@ class PathStack {
                             doNavigate(traverse.shift());
                         }
                         else {
+                            // debug('Navigated To:');
+                            // this._stack.forEach(level => debug(`${level.path} @ ${level.deviceId}:${level.id}`));
                             resolve();
                         }
                     }

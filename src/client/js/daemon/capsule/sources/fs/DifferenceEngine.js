@@ -11,11 +11,11 @@ const { FileEntry, LinkEntry, DirectoryEntry, CapsuleEntry } = require('../../Ca
 //                                              .path(path, done)
 //
 //  Callbacks:
-//     _add(path, entry, done)
+//     _add(fullPath,, entry, done)
 //     _remove(fullPath, relativePath, entryType, done)
-//     _update(entry, done)
-//     _error(path, error)
-//     _ignore(path)
+//     _update(fullPath, entry, done)
+//     _error(fullPath, error)
+//     _ignore(fullPath)
 
 class DifferenceEngine {
 
@@ -24,28 +24,37 @@ class DifferenceEngine {
         this._root = root;
 
         this._options = {
-            deep:             Object.prototype.hasOwnProperty.call(options, 'deep') ? options.deep : false,
-            directoryAdds:    true,
-            directoryRemoves: true,
-            followLinks:      Object.prototype.hasOwnProperty.call(options, 'followLinks') ? options.followLinks : true,
-            concurrency:      Object.prototype.hasOwnProperty.call(options, 'concurrency') ? options.concurrency : 8,
+            forceDirectoryContents: (options && options.forceDirectoryContents) ? options.forceDirectoryContents : false,
+            directoryAdds:          true,
+            directoryRemoves:       true,
+            followLinks:            (options && options.followLinks) ? options.followLinks : true,
+            concurrency:            (options && options.concurrency) ? options.concurrency : 8,
         };
 
-        if (Object.prototype.hasOwnProperty.call(options, 'directoryCheck')) {
-            switch (options.directoryCheck) {
-            case DifferenceEngine.DirectoryCheck.ADDED:
+        if (Object.prototype.hasOwnProperty.call(options, 'directoryContents')) {
+            switch (options.directoryContents) {
+            case DifferenceEngine.DirectoryContents.ADDED:
                 this._options.directoryRemoves = false;
                 break;
-            case DifferenceEngine.DirectoryCheck.REMOVED:
+            case DifferenceEngine.DirectoryContents.REMOVED:
                 this._options.directoryAdds = false;
                 break;
-            case DifferenceEngine.DirectoryCheck.NONE:
+            case DifferenceEngine.DirectoryContents.NONE:
                 this._options.directoryRemoves = false;
                 this._options.directoryAdds = false;
                 break;
             default:
                 break;
             }
+        }
+
+        // Overwrite default filter and exclusion functions if handles exist.
+        if (options && options.filter) {
+            this._filter = options.filter.bind(this);
+        }
+
+        if (options && options.exclude) {
+            this._exclude = options.exclude.bind(this);
         }
 
         // Overwrite default handlers if custom handlers exist.
@@ -69,6 +78,14 @@ class DifferenceEngine {
         this._ignore = Object.prototype.hasOwnProperty.call(options, 'ignore') ? options.ignore.bind(this) : (() => {});
     }
 
+    _filter() {
+        return true;
+    }
+
+    _exclude() {
+        return false;
+    }
+
     _add(fullPath, entry, done) {
         if (this._changes) {
             this._changes.push({ operation: DifferenceEngine.Change.ADD, fullPath: fullPath, entry: entry });
@@ -76,7 +93,7 @@ class DifferenceEngine {
         done();
     }
 
-    _remove(fullPath, relativePath, type) {
+    _remove(fullPath, relativePath, type, done) {
         if (this._changes) {
             this._changes.push({
                 operation:    DifferenceEngine.Change.REMOVE,
@@ -85,24 +102,37 @@ class DifferenceEngine {
                 type:         type,
             });
         }
+        done();
     }
 
-    _update(entry) {
+    _update(fullPath, entry, done) {
         if (this._changes) {
-            this._changes.push({ operation: DifferenceEngine.Change.UPDATE, entry: entry });
+            this._changes.push({ operation: DifferenceEngine.Change.UPDATE, fullPath: fullPath, entry: entry });
         }
+        done();
     }
 
     _addFile(path, relativePath, stat, done) {
-        this._add(path, FileEntry.makeFromStat(relativePath, stat), done);
+        const entry = FileEntry.makeFromStat(relativePath, stat);
+        if (this._filter(entry)) {
+            return this._add(path, entry, done);
+        }
+        return done();
     }
 
     _addDirectory(path, relativePath, stat, done) {
-        this._add(path, DirectoryEntry.makeFromStat(relativePath, stat), done);
+        if (!this._exclude(path)) {
+            return this._add(path, DirectoryEntry.makeFromStat(relativePath, stat), done);
+        }
+        return done();
     }
 
     _addUnfollowedSymlink(path, relativePath, linkedPath, stat, done) {
-        this._add(path, LinkEntry.makeFromStat(relativePath, linkedPath, stat), done);
+        const entry = LinkEntry.makeFromStat(relativePath, linkedPath, stat);
+        if (this._filter(entry)) {
+            return this._add(path, entry, done);
+        }
+        return done();
     }
 
     _addSymlink(stack, path, relativePath, stat, done) {
@@ -132,13 +162,9 @@ class DifferenceEngine {
                 debug(`Linked: '${link.linkedPath}' is neither a file, or directory. Ignoring.`);
                 this._ignore(link.linkedPath);
             }
-            // If not following links, insert a link entry.
+            // If not following links, insert a link entry with the original linked path.
             else {
-                // Get the absolute path of the item being linked to, then strip off the root to make it relative to the
-                // tree.
-                const absoluteLinkedPath = PathTools.getAbsoluteLinkPath(path, link.linkedPath);
-                const relativeLinkedPath = PathTools.stripRoot(absoluteLinkedPath, this._root);
-                return this._addUnfollowedSymlink(path, relativePath, relativeLinkedPath, stat, done);
+                return this._addUnfollowedSymlink(path, relativePath, link.linkedPath, stat, done);
             }
 
             return done();
@@ -146,13 +172,17 @@ class DifferenceEngine {
         .catch((resolveErr) => {
             debug(`Failed to resolve link: '${path}' due to error: ${resolveErr.code}.`);
             this._error(path, resolveErr);
+            // TODO: Handle ELOOP errors. When not following symlinks, these
+            // links should be faithfully represented.
             done();
         });
     }
 
     _processRemovedPaths(stack, entries, done) {
-        entries.forEach(entry => this._remove(entry.fullPath, entry.relativePath, entry.type));
-        done();
+        async.eachLimit(entries, this._options.concurrency, (entry, next) => {
+            this._remove(entry.fullPath, entry.relativePath, entry.type, next);
+        },
+        () => done());
     }
 
     _processAddedPath(stack, fullPath, stat, done) {
@@ -236,6 +266,17 @@ class DifferenceEngine {
         });
     }
 
+    _inspectDirectoryContents(stack, fullPath, relativePath, done) {
+        if (this._options.directoryAdds || this._options.directoryRemoves) {
+            return this._calculateDirectoryDelta(fullPath, relativePath, (additions, removals) => {
+                this._processAddedPaths(stack, additions, () => {
+                    this._processRemovedPaths(stack, removals, done);
+                });
+            });
+        }
+        return done();
+    }
+
     changes() {
         return this._changes || [];
     }
@@ -271,6 +312,15 @@ class DifferenceEngine {
 
         // Get the stat information for the item being scanned.
         return this.getStat(fullPath, (err, stat) => {
+            // Directory removal due to exclusion.
+            if (entry && (entry.type === CapsuleEntry.Type.DIRECTORY) && this._exclude(fullPath)) {
+                return this._remove(fullPath, relativePath, entry.type, done);
+            }
+            // File or link removal due to filter.
+            else if (entry && (entry.type !== CapsuleEntry.Type.DIRECTORY) && !this._filter(entry)) {
+                return this._remove(fullPath, relativePath, entry.type, done);
+            }
+
             // Update the traversal stack.
             if (!err && stat.isDirectory()) {
                 stack.interogatePath(fullPath);
@@ -285,7 +335,7 @@ class DifferenceEngine {
                 }
 
                 if (entry) {
-                    this._remove(fullPath, relativePath, entry.type);
+                    return this._remove(fullPath, relativePath, entry.type, done);
                 }
             }
             // Addition.
@@ -299,7 +349,7 @@ class DifferenceEngine {
                     // Check if the file metadata has changed.
                     if (!entry.isIdentical(stat)) {
                         entry.update(stat);
-                        this._update(entry);
+                        return this._update(fullPath, entry, done);
                     }
 
                     return done();
@@ -309,20 +359,15 @@ class DifferenceEngine {
                     // Check if the directory metadata has changed.
                     const isIdentical = entry.isIdentical(stat);
 
+                    // If the directory metadata changed, deeply inspect the directory contents.
                     if (!isIdentical) {
                         entry.update(stat);
-                        this._update(entry);
+                        return this._update(fullPath, entry, () =>
+                            this._inspectDirectoryContents(stack, fullPath, relativePath, done));
                     }
-
-                    // Check for modifications to the directory contents if requested.
-                    if (!isIdentical || this._options.deep) {
-                        if (this._options.directoryAdds || this._options.directoryRemoves) {
-                            return this._calculateDirectoryDelta(fullPath, relativePath, (additions, removals) => {
-                                this._processAddedPaths(stack, additions, () => {
-                                    this._processRemovedPaths(stack, removals, done);
-                                });
-                            });
-                        }
+                    // Deeply inspect the directory contents if the deep option is set.
+                    else if (this._options.forceDirectoryContents) {
+                        return this._inspectDirectoryContents(stack, fullPath, relativePath, done);
                     }
 
                     return done();
@@ -338,18 +383,16 @@ class DifferenceEngine {
                         if (!linkErr && linkStat.isSymbolicLink()) {
                             // Check if the link metadata has changed.
                             if (!entry.isIdentical(linkStat)) {
-                                // TODO: Do we have to check if the linked path changed? Symlinks have no atomic
-                                // edit capability.
                                 entry.update(linkStat);
-                                this._update(entry);
+                                return this._update(fullPath, entry, done);
                             }
-                        }
-                        // Path is not actually a link.
-                        else {
-                            this._remove(fullPath, relativePath, entry.type);
+
+                            // Link is identical.
+                            return done();
                         }
 
-                        return done();
+                        // Path is not actually a link.
+                        return this._remove(fullPath, relativePath, entry.type, done);
                     });
                 }
                 // When not following links, a Capsule link entry should mirror an on-disk link entry. The
@@ -360,14 +403,14 @@ class DifferenceEngine {
                     if (stat.isSymbolicLink()) {
                         if (!entry.isIdentical(stat)) {
                             entry.update(stat);
-                            this._update(entry);
+                            return this._update(fullPath, entry, done);
                         }
                         return done();
                     }
                 }
 
-                // Type mismatch. Remove database entry.
-                this._remove(fullPath, relativePath, entry.type);
+                // Type mismatch or irregular filesystem object. Remove database entry.
+                return this._remove(fullPath, relativePath, entry.type, done);
             }
 
             return done();
@@ -376,7 +419,7 @@ class DifferenceEngine {
 
 }
 
-DifferenceEngine.DirectoryCheck = {
+DifferenceEngine.DirectoryContents = {
     NONE:    0,
     ADDED:   1,
     REMOVED: 2,

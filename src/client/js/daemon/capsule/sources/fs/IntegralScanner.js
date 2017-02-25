@@ -116,8 +116,8 @@ class IntegralScanner {
         this.insert(entry);
     }
 
-    _addUnfollowedSymlink(relativePath, relativeLinkedPath, linkStat, done) {
-        const entry = LinkEntry.makeFromStat(relativePath, relativeLinkedPath, linkStat);
+    _addUnfollowedSymlink(relativePath, linkedPath, linkStat, done) {
+        const entry = LinkEntry.makeFromStat(relativePath, linkedPath, linkStat);
         if (this.filter(entry)) {
             this._addedSoftLinks += 1;
             this.insert(entry);
@@ -155,7 +155,7 @@ class IntegralScanner {
                 debug(`Linked: '${link.linkedPath}' is neither a file, or directory. Ignoring.`);
                 this._ignored += 1;
             }
-            // If not following links, insert a link entry.
+            // If not following links, insert a link entry with the original linked path.
             else {
                 return this._addUnfollowedSymlink(relativePath, link.linkedPath, linkStat, done);
             }
@@ -239,8 +239,6 @@ class IntegralScanner {
 
     run(pathStack) {
         return new Promise((resolve) => {
-            const root = path.normalize(this.root);
-
             // Reset stats to zero values.
             this._resetStats();
             this._startStats();
@@ -265,7 +263,7 @@ class IntegralScanner {
                 }
             };
 
-            this._descend(root, runNext);
+            this._descend(this.root, runNext);
         });
     }
 

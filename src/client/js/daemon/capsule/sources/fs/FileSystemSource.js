@@ -2,6 +2,7 @@ const debug = require('debug')('Capsule.Sources.FileSystem.FileSystemSource');
 const fs = require('original-fs');
 
 const Source = require('../Source.js');
+const PathTools = require('../../../fs/PathTools.js');
 const PathStack = require('./PathStack.js');
 const IntegralScanner = require('./IntegralScanner.js');
 const DeltaScanner = require('./DeltaScanner.js');
@@ -13,17 +14,20 @@ const { CapsuleEntry } = require('../../CapsuleEntry.js');
 
 class FileSystemSource extends Source {
 
-    constructor(id, root) {
+    constructor(id, root, options) {
         super(id);
 
-        this._root = root;
+        this._root = PathTools.normalize(root);
+        this._watcher = null;
+        this._lastScan = null;
+
         this._options = {
-            followLinks: true,
+            followLinks: (options && Object.prototype.hasOwnProperty.call(options, 'followLinks')) ?
+                options.followLinks : true,
         };
+
         this._filters = FilterSet.empty();
         this._exclusions = ExclusionSet.empty();
-        this._watcher = null;
-        this.lastScan = null;
     }
 
     load() {
@@ -55,12 +59,12 @@ class FileSystemSource extends Source {
                     // Check if there was an initial scan in a new thread to allow the load thread
                     // to complete.
                     process.nextTick(() => {
-                        if (this.lastScan === null) {
+                        if (this._lastScan === null) {
                             debug(`[${this._id}] Source has never been scanned before.`);
                             this.emit('initialScan');
                         }
                         else {
-                            debug(`[${this._id}] Source was last scanned ${this.lastScan}.`);
+                            debug(`[${this._id}] Source was last scanned ${this._lastScan}.`);
                             this.emit('deltaScan');
                         }
                     });
@@ -69,13 +73,17 @@ class FileSystemSource extends Source {
         });
     }
 
+    get lastScan() {
+        return this._lastScan;
+    }
+
     get filters() {
         return this._filters;
     }
 
     filter(filters) {
         this._filters = filters;
-        this.emit('deltaScan', { deep: true });
+        this.emit('deltaScan', { forceDirectoryContents: true });
     }
 
     get exclusions() {
@@ -84,7 +92,7 @@ class FileSystemSource extends Source {
 
     exclude(exclusions) {
         this._exclusions = exclusions;
-        this.emit('deltaScan', { deep: true });
+        this.emit('deltaScan', { forceDirectoryContents: true });
     }
 
     unload() {
@@ -108,8 +116,10 @@ class FileSystemSource extends Source {
         // On-change notification, run the difference engine on each changed path.
         this._watcher.change = (fullPaths) => {
             const options = {
-                directoryCheck: DifferenceEngine.DirectoryCheck.BOTH,
-                followLinks:    this._options.followLinks,
+                directoryContents: DifferenceEngine.DirectoryContents.BOTH,
+                followLinks:       this._options.followLinks,
+                filter:            entry => this._filters.evaluate(entry),
+                exclude:           fullPath => this._exclusions.evaluate(fullPath),
             };
 
             // Create a difference engine that will be used for all watch notifications.
@@ -121,6 +131,13 @@ class FileSystemSource extends Source {
                 }
             }
 
+            // Hacky, hack...
+            function removeIfNext(fullPath) {
+                while (fullPaths.length > 0 && fullPaths[0] === fullPath) {
+                    fullPaths.shift();
+                }
+            }
+
             function executeDiff(fullPath, done) {
                 // Run the difference engine on the path.
                 diff.path(new PathStack(), fullPath, () => {
@@ -128,6 +145,7 @@ class FileSystemSource extends Source {
                     const changes = diff.changes().map((change) => {
                         // Updates become an upsert.
                         if (change.operation === DifferenceEngine.Change.UPDATE) {
+                            removeIfNext(change.fullPath);
                             return { action: Source.Actions.UPSERT, entry: change.entry };
                         }
                         // Remove is recursive, so skip paths that are prefixed with the removed path.
@@ -137,9 +155,9 @@ class FileSystemSource extends Source {
                         }
                         // Add is an upser for files and links, but recursive for directories.
                         else if (change.operation === DifferenceEngine.Change.ADD) {
+                            removePrefixed(change.fullPath);
                             // Since directory adds are recursive, skip paths that are prefixed with the added path.
                             if (change.entry.type === CapsuleEntry.Type.DIRECTORY) {
-                                removePrefixed(change.fullPath);
                                 return { action: Source.Actions.SCAN, at: change.fullPath };
                             }
                             return { action: Source.Actions.UPSERT, entry: change.entry };
@@ -187,9 +205,21 @@ class FileSystemSource extends Source {
 
     }
 
+    _scanComplete() {
+        const currentDate = Date();
+        this._lastScan = currentDate;
+        this.emit('scanComplete', currentDate);
+    }
+
     integral(insert, commit, progress) {
         return new Promise((resolve, reject) => {
-            const integral = new IntegralScanner(this._root, { followLinks: true, progressInterval: 500 });
+            // Options for the Integral scanner.
+            const options = {
+                followLinks:      this._options.followLinks,
+                progressInterval: 500,
+            };
+
+            const integral = new IntegralScanner(this._root, options);
 
             integral.progress = progress || (() => {});
             integral.insert = insert;
@@ -199,7 +229,7 @@ class FileSystemSource extends Source {
 
             integral.run()
                 .then(() => {
-                    this.lastScan = Date();
+                    this._scanComplete();
                     resolve();
                 })
                 .catch(reject);
@@ -208,8 +238,14 @@ class FileSystemSource extends Source {
 
     delta(tree, options, upsert, remove, commit, progress) {
         return new Promise((resolve, reject) => {
-            const deep = (options && options.deep) || false;
-            const delta = new DeltaScanner(this._root, tree, { deep: deep, followLinks: true, progressInterval: 500 });
+            // Options for the Delta scanner.
+            const deltaOptions = {
+                forceDirectoryContents: (options && options.forceDirectoryContents) || false,
+                followLinks:            this._options.followLinks,
+                progressInterval:       500,
+            };
+
+            const delta = new DeltaScanner(this._root, tree, deltaOptions);
 
             delta.progress = progress || (() => {});
             delta.upsert = upsert;
@@ -222,7 +258,9 @@ class FileSystemSource extends Source {
 
             delta.run(path)
                 .then(() => {
-                    this.lastScan = Date();
+                    if (!path || path === this._root) {
+                        this._scanComplete();
+                    }
                     resolve();
                 })
                 .catch(reject);
@@ -232,13 +270,14 @@ class FileSystemSource extends Source {
     serialize() {
         return super.serialize(FileSystemSource.TYPE_IDENTIFIER, {
             root:     this._root,
-            lastScan: this.lastScan || null,
+            lastScan: this._lastScan || null,
+            options:  { followLinks: this._options.followLinks },
         });
     }
 
     static deserialize(serialized) {
-        const source = new FileSystemSource(serialized.id, serialized.derived.root);
-        source.lastScan = serialized.derived.lastScan || null;
+        const source = new FileSystemSource(serialized.id, serialized.derived.root, serialized.derived.options);
+        source._lastScan = serialized.derived.lastScan || null;
         return source;
     }
 }

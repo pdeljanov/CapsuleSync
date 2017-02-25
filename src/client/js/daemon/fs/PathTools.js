@@ -19,6 +19,10 @@ class PathTools {
         return mime.contentType(PathTools.extractExtension(givenPath));
     }
 
+    static normalize(givenPath) {
+        return path.normalize(givenPath).replace(/\/$/, '') || path.sep;
+    }
+
     static stripRoot(givenPath, root) {
         const striped = givenPath.replace(root, '');
         if (striped === '') {
