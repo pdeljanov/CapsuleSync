@@ -112,6 +112,6 @@ class DirectoryEntry {
 
 DirectoryEntry.ID_LENGTH = 12;
 
-DirectoryEntry.TYPE = 1;
+DirectoryEntry.TYPE = 2;
 
 module.exports = DirectoryEntry;

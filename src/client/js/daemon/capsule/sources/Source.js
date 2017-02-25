@@ -15,8 +15,8 @@ class Source extends EventEmitter {
         const serialized = {
             type: type,
             data: {
-                id:      this._id,
-                derived: derivedData,
+                id:   this._id,
+                inst: derivedData,
             },
         };
         return serialized;

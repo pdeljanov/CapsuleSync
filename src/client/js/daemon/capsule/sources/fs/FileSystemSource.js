@@ -5,9 +5,9 @@ const Errors = require('../../../Errors.js');
 const Source = require('../Source.js');
 const PathTools = require('../../../fs/PathTools.js');
 const PathStack = require('./PathStack.js');
+const DifferenceEngine = require('./DifferenceEngine.js');
 const IntegralScanner = require('./IntegralScanner.js');
 const DeltaScanner = require('./DeltaScanner.js');
-const DifferenceEngine = require('./DifferenceEngine.js');
 const Watcher = require('./Watcher.js');
 const ExclusionSet = require('../../ExclusionSet.js');
 const { FilterSet } = require('../../FilterSet.js');
@@ -312,8 +312,8 @@ class FileSystemSource extends Source {
     }
 
     static deserialize(serialized) {
-        const source = new FileSystemSource(serialized.id, serialized.derived.root, serialized.derived.options);
-        source._lastScan = serialized.derived.lastScan || null;
+        const source = new FileSystemSource(serialized.id, serialized.inst.root, serialized.inst.options);
+        source._lastScan = serialized.inst.lastScan || null;
         return source;
     }
 }
