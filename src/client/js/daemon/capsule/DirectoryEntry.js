@@ -1,19 +1,21 @@
+const BlobEntry = require('./BlobEntry.js');
 const IdGenerator = require('../util/IdGenerator.js');
 const PathTools = require('../fs/PathTools.js');
 
 class DirectoryEntry {
 
-    constructor(path) {
-        this.path = path;
-        this._data = {
-            t:   'd',
-            id:  0,
-            mt:  0,
-            dn:  '',
-            din: '',
-            mv:  { },
-            sv:  { },
-        };
+    constructor(path, blob) {
+        this._path = path;
+        this._blob = blob || null;
+        this._id = 0;
+        this._displayName = null;
+        this._directoryName = '';
+        this._modVector = {};
+        this._syncVector = {};
+    }
+
+    get path() {
+        return this._path;
     }
 
     get type() {
@@ -21,88 +23,95 @@ class DirectoryEntry {
     }
 
     get id() {
-        return this._data.id;
+        return this._id;
+    }
+
+    get mediaType() {
+        return this._mediaType;
     }
 
     get displayName() {
-        if (this._data.dn) {
-            return this._data.dn;
+        if (this._displayName) {
+            return this._displayName;
         }
-        return this._data.din;
+        return this._directoryName;
     }
 
-    get dirName() {
-        return this._data.din;
+    get directoryName() {
+        return this._directoryName;
     }
 
-    get modificationTime() {
-        return this._data.mt;
+    get blob() {
+        return this._blob;
+    }
+
+    get available() {
+        return this._blob !== null;
     }
 
     get modificationVector() {
-        return this._data.mv;
-    }
-
-    set modificationVector(vector) {
-        this._data.mv = vector;
+        return this._modVector;
     }
 
     get syncronizationVector() {
-        return this._data.sv;
-    }
-
-    set syncronizationVector(vector) {
-        this._data.sv = vector;
+        return this._syncVector;
     }
 
     modify(time) {
-        this._data.mv = time;
+        this._modVector = time;
     }
 
     synchronize(time) {
-        this._data.sv = time;
+        this._syncVector = time;
     }
 
     isIdentical(stat) {
-        if (stat.mtime.getTime() === this.modificationTime.getTime()) {
+        if (this.available && this.blob.isIdentical(stat)) {
             return true;
         }
         return false;
     }
 
     update(stat) {
-        this._data.mt = stat.mtime;
+        if (this._blob) {
+            this._blob.update(stat);
+        }
     }
 
     serialize() {
-        return this._data;
+        return {
+            t:  'd',
+            id: this._id,
+            dn: this._displayName,
+            fn: this._directoryName,
+            mv: this._modVector,
+            sv: this._syncVector,
+            b:  this._blob ? this._blob.serialize() : null,
+            a:  this._blob !== null,
+        };
     }
 
-    static makeFromSerialization(path, serialization) {
-        const deserialized = new DirectoryEntry(path);
-        deserialized._data.id = serialization.id;
-        deserialized._data.dn = serialization.dn;
-        deserialized._data.din = serialization.din;
-        deserialized._data.sv = serialization.sv;
-        deserialized._data.mv = serialization.mv;
-        deserialized._data.mt = new Date(serialization.mt);
-        return deserialized;
+    static deserialize(path, serialization) {
+        const blob = serialization.b ? BlobEntry.deserialize(serialization.b) : null;
+        const entry = new DirectoryEntry(path, blob);
+        entry._id = serialization.id;
+        entry._displayName = serialization.dn;
+        entry._directoryName = serialization.fn;
+        entry._modVector = serialization.mv;
+        entry._syncVector = serialization.sv;
+        return entry;
     }
 
-    static makeFromStat(path, stat) {
-        const id = IdGenerator(DirectoryEntry.ID_LENGTH);
-        const dirName = PathTools.extractFileName(path);
-
-        const dir = new DirectoryEntry(path);
-        dir._data.id = id;
-        dir._data.din = dirName;
-        dir._data.mt = stat.mtime;
-        return dir;
+    static fromDirectoryInfo(path, stat) {
+        const directory = new DirectoryEntry(path, BlobEntry.fromStat(path, stat));
+        directory._id = IdGenerator(DirectoryEntry.ID_LENGTH);
+        directory._directoryName = PathTools.extractFileName(path);
+        return directory;
     }
-
 }
 
 DirectoryEntry.ID_LENGTH = 12;
-DirectoryEntry.TYPE = 2;
+
+DirectoryEntry.TYPE = 1;
 
 module.exports = DirectoryEntry;

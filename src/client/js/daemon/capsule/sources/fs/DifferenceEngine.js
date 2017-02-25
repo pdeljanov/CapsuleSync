@@ -113,7 +113,7 @@ class DifferenceEngine {
     }
 
     _addFile(path, relativePath, stat, done) {
-        const entry = FileEntry.makeFromStat(relativePath, stat);
+        const entry = FileEntry.fromFileInfo(relativePath, stat);
         if (this._filter(entry)) {
             return this._add(path, entry, done);
         }
@@ -122,13 +122,13 @@ class DifferenceEngine {
 
     _addDirectory(path, relativePath, stat, done) {
         if (!this._exclude(path)) {
-            return this._add(path, DirectoryEntry.makeFromStat(relativePath, stat), done);
+            return this._add(path, DirectoryEntry.fromDirectoryInfo(relativePath, stat), done);
         }
         return done();
     }
 
     _addUnfollowedSymlink(path, relativePath, linkedPath, stat, done) {
-        const entry = LinkEntry.makeFromStat(relativePath, linkedPath, stat);
+        const entry = LinkEntry.fromFileInfo(relativePath, linkedPath, stat);
         if (this._filter(entry)) {
             return this._add(path, entry, done);
         }

@@ -1,7 +1,6 @@
 const path = require('path');
 const mime = require('mime-types');
 
-module.exports =
 class PathTools {
     static extractFileName(givenPath) {
         return path.basename(givenPath);
@@ -19,6 +18,18 @@ class PathTools {
         return mime.contentType(PathTools.extractExtension(givenPath));
     }
 
+    /* Normalize accepts a path string and returns a new path with a standardized format. The following rules apply.
+     *  1) A normalized path shall be the shortest logical path. Therefore it must not contain any '.' or '..'
+     *      characters.
+     *  2) A normalized path shall not have any trailing path seperators.
+     *  3) A normalized path, if absolute, shall always be prefixed by its root. Conversely, all relative paths must
+     *     not begin with any prefixed characters. For example, './filename' is incorrect, but 'filename.txt' is.
+     *  4) All paths must use the platform native path seperator.
+     *
+     * Windows rule(s):
+     *  5) All paths must be encoded in the UNC format for local paths, that is, they must all contains a '\\?\' prefix.
+     *
+    */
     static normalize(givenPath) {
         return path.normalize(givenPath).replace(/\/$/, '') || path.sep;
     }
@@ -54,4 +65,7 @@ class PathTools {
         return path.resolve(path.getdirname(pathOfLink), linkedPath);
     }
 
-};
+}
+
+
+module.exports = PathTools;

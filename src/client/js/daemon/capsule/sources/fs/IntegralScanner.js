@@ -101,7 +101,7 @@ class IntegralScanner {
     }
 
     _addFile(relativePath, stat, done) {
-        const entry = FileEntry.makeFromStat(relativePath, stat);
+        const entry = FileEntry.fromFileInfo(relativePath, stat);
         if (this.filter(entry)) {
             this._numFiles += 1;
             this._numBytes += stat.size;
@@ -112,12 +112,12 @@ class IntegralScanner {
 
     _addDirectory(relativePath, stat) {
         this._numDirectories += 1;
-        const entry = DirectoryEntry.makeFromStat(relativePath, stat);
+        const entry = DirectoryEntry.fromDirectoryInfo(relativePath, stat);
         this.insert(entry);
     }
 
     _addUnfollowedSymlink(relativePath, linkedPath, linkStat, done) {
-        const entry = LinkEntry.makeFromStat(relativePath, linkedPath, linkStat);
+        const entry = LinkEntry.fromFileInfo(relativePath, linkedPath, linkStat);
         if (this.filter(entry)) {
             this._addedSoftLinks += 1;
             this.insert(entry);

@@ -1,23 +1,22 @@
-const Blob = require('./Blob.js');
+const BlobEntry = require('./BlobEntry.js');
 const IdGenerator = require('../util/IdGenerator.js');
 const PathTools = require('../fs/PathTools.js');
 
 class FileEntry {
 
     constructor(path, blob) {
-        this.path = path;
-        this._data = {
-            t:   'f',
-            typ: '',
-            id:  0,
-            dn:  '',
-            fn:  '',
-            mv:  { },
-            sv:  { },
-            b:   blob ? blob.serialize() : null,
-            a:   blob != null,
-        };
+        this._path = path;
         this._blob = blob || null;
+        this._id = 0;
+        this._mediaType = '';
+        this._displayName = null;
+        this._fileName = '';
+        this._modVector = {};
+        this._syncVector = {};
+    }
+
+    get path() {
+        return this._path;
     }
 
     get type() {
@@ -25,22 +24,22 @@ class FileEntry {
     }
 
     get id() {
-        return this._data.id;
+        return this._id;
     }
 
     get mediaType() {
-        return this._data.typ;
+        return this._mediaType;
     }
 
     get displayName() {
-        if (this._data.dn) {
-            return this._data.dn;
+        if (this._displayName) {
+            return this._displayName;
         }
-        return this._data.fn;
+        return this._fileName;
     }
 
     get fileName() {
-        return this._data.fn;
+        return this._fileName;
     }
 
     get blob() {
@@ -48,46 +47,27 @@ class FileEntry {
     }
 
     get available() {
-        return this._data.a;
+        return this._blob !== null;
     }
 
     get modificationVector() {
-        return this._data.mv;
-    }
-
-    set modificationVector(vector) {
-        this._data.mv = vector;
+        return this._modVector;
     }
 
     get syncronizationVector() {
-        return this._data.sv;
-    }
-
-    set syncronizationVector(vector) {
-        this._data.sv = vector;
+        return this._syncVector;
     }
 
     modify(time) {
-        this._data.mv = time;
+        this._modVector = time;
     }
 
     synchronize(time) {
-        this._data.sv = time;
-    }
-
-    serialize() {
-        return this._data;
+        this._syncVector = time;
     }
 
     isIdentical(stat) {
-        if (stat.size === this.blob.byteLength &&
-            stat.mtime.getTime() === this.blob.modificationTime.getTime() &&
-            stat.birthtime.getTime() === this.blob.creationTime.getTime() &&
-            stat.uid === this.blob.uid &&
-            stat.gid === this.blob.gid &&
-            stat.mode === this.blob.mode &&
-            stat.ino === this.blob.inode
-        ) {
+        if (this.available && this.blob.isIdentical(stat)) {
             return true;
         }
         return false;
@@ -96,32 +76,40 @@ class FileEntry {
     update(stat) {
         if (this._blob) {
             this._blob.update(stat);
-            this._data.b = this._blob.serialize();
         }
     }
 
-    static makeFromSerialization(path, serialization) {
-        const blob = serialization.b ? Blob.deserialize(serialization.b) : null;
-        const deserialized = new FileEntry(path, blob);
-        deserialized._data.typ = serialization.typ;
-        deserialized._data.id = serialization.id;
-        deserialized._data.dn = serialization.dn;
-        deserialized._data.fn = serialization.fn;
-        deserialized._data.sv = serialization.sv;
-        deserialized._data.mv = serialization.mv;
-        return deserialized;
+    serialize() {
+        return {
+            t:   'f',
+            id:  this._id,
+            typ: this._mediaType,
+            dn:  this._displayName,
+            fn:  this._fileName,
+            mv:  this._modVector,
+            sv:  this._syncVector,
+            b:   this._blob ? this._blob.serialize() : null,
+            a:   this._blob !== null,
+        };
     }
 
-    static makeFromStat(path, stat) {
-        const id = IdGenerator(FileEntry.ID_LENGTH);
-        const fileName = PathTools.extractFileName(path);
-        const mediaType = PathTools.extractMediaType(path);
-        const blob = Blob.fromStat(path, stat);
+    static deserialize(path, serialization) {
+        const blob = serialization.b ? BlobEntry.deserialize(serialization.b) : null;
+        const entry = new FileEntry(path, blob);
+        entry._id = serialization.id;
+        entry._mediaType = serialization.typ;
+        entry._displayName = serialization.dn;
+        entry._fileName = serialization.fn;
+        entry._modVector = serialization.mv;
+        entry._syncVector = serialization.sv;
+        return entry;
+    }
 
-        const file = new FileEntry(path, blob);
-        file._data.typ = mediaType;
-        file._data.id = id;
-        file._data.fn = fileName;
+    static fromFileInfo(path, stat) {
+        const file = new FileEntry(path, BlobEntry.fromStat(path, stat));
+        file._id = IdGenerator(FileEntry.ID_LENGTH);
+        file._mediaType = PathTools.extractMediaType(path);
+        file._fileName = PathTools.extractFileName(path);
         return file;
     }
 }

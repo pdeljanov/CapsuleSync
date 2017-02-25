@@ -7,11 +7,11 @@ class CapsuleEntry {
         const type = serialization.t || null;
         switch (type) {
         case 'f':
-            return FileEntry.makeFromSerialization(path, serialization);
+            return FileEntry.deserialize(path, serialization);
         case 'd':
-            return DirectoryEntry.makeFromSerialization(path, serialization);
+            return DirectoryEntry.deserialize(path, serialization);
         case 'l':
-            return LinkEntry.makeFromSerialization(path, serialization);
+            return LinkEntry.deserialize(path, serialization);
         default:
             return null;
         }

@@ -1,5 +1,4 @@
-module.exports =
-class Blob {
+class BlobEntry {
 
     constructor(byteLength, creationTime, modificationTime, inode, uid, gid, mode, sha1) {
         this._data = {
@@ -46,15 +45,35 @@ class Blob {
         return this._data.mod;
     }
 
+    _isContentIdentical(stat) {
+        return (stat.size === this._data.bl) &&
+            (stat.mtime.getTime() === this._data.mt.getTime()) &&
+            (stat.birthtime.getTime() === this._data.ct.getTime());
+    }
+
+    isIdentical(stat) {
+        if (this._isContentIdentical(stat) &&
+            stat.uid === this._data.uid &&
+            stat.gid === this._data.gid &&
+            stat.mode === this._data.mod &&
+            stat.ino === this._data.ino
+        ) {
+            return true;
+        }
+        return false;
+    }
+
     update(stat) {
-        this._data.bl = stat.size;
-        this._data.ct = new Date(stat.birthtime);
-        this._data.mt = new Date(stat.mtime);
-        this._data.ino = stat.ino;
+        if (!this._isContentIdentical(stat)) {
+            this._data.sha1 = null;
+            this._data.bl = stat.size;
+            this._data.ct = new Date(stat.birthtime);
+            this._data.mt = new Date(stat.mtime);
+        }
         this._data.uid = stat.uid;
         this._data.gid = stat.gid;
         this._data.mod = stat.mode;
-        // TODO: Invalidate sha1 based on changes above.
+        this._data.ino = stat.ino;
     }
 
     serialize() {
@@ -62,7 +81,7 @@ class Blob {
     }
 
     static deserialize(serialized) {
-        const deserialized = new Blob(
+        const deserialized = new BlobEntry(
             serialized.bl,
             new Date(serialized.ct),
             new Date(serialized.mt),
@@ -76,7 +95,7 @@ class Blob {
     }
 
     static fromStat(path, stat) {
-        return new Blob(
+        return new BlobEntry(
             stat.size,
             stat.birthtime,
             stat.mtime,
@@ -85,5 +104,6 @@ class Blob {
             stat.gid,
             stat.mode);
     }
+}
 
-};
+module.exports = BlobEntry;
