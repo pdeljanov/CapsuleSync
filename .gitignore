@@ -2,7 +2,7 @@
 /build
 /third_party
 /doc/api
-/src/client/node_modules
+/src/node_modules
 npm-debug.log
 
 # OSX
