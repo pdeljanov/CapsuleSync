@@ -1,5 +1,3 @@
-'use strict';
-
 const assert = require('assert');
 const debug = require('debug')('Capsule.FSDB.Partition');
 

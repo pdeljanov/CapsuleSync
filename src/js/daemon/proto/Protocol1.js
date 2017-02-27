@@ -1,6 +1,8 @@
-const debug = require('debug')('Proto.Protocol1');
+const debug = require('debug')('Protocol.Protocol1');
 
 const Errors = require('../Errors.js');
+
+/* eslint class-methods-use-this: "off" */
 
 class CapsuleProtocol {
     type() {

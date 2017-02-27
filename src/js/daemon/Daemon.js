@@ -24,9 +24,18 @@ class CapsuleAdapter extends Protocol.Capsule {
     }
 }
 
-const DEVICE_NAME = 'Shingeki-No-Desktop PC';
+const CONFIG_FILE = 'App.Settings';
 const VERSION = '17.02.26.0';
 const HTTPS_PORT = 53035;
+
+// Daemon Service startup order.
+//
+// 0.  AppPaths
+// 1.      Config
+// 2.          UserService // DeviceService
+// 3.              IpcService // CapsuleService    [Ipc/1, Protocol/1]
+// 4.                  MDNSBroadcastService // GlobalDiscoveryService
+// 5.                      RESTService // WebRTCService
 
 class Daemon {
 
@@ -41,7 +50,7 @@ class Daemon {
     }
 
     _loadConfig() {
-        this.config = new Config('App.Settings');
+        this.config = new Config(CONFIG_FILE);
         this.config.defaults({
             user:     User.new().serialize(),
             capsules: {},
@@ -108,7 +117,7 @@ class Daemon {
     }
 
     _loadMDNSBroadcastService() {
-        const broadcast = new MDNSBroadcaster(HTTPS_PORT, this.user.id, `${this.devices[0].name} Capsules`);
+        const broadcast = new MDNSBroadcaster(HTTPS_PORT, this.user.id, `${this.devices[0].name}'s Capsules`);
         this.mdns = broadcast;
         return broadcast.start();
     }

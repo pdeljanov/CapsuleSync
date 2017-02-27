@@ -1,5 +1,3 @@
-'use strict';
-
 const debug = require('debug')('Capsule.Capsule');
 
 const EventEmitter = require('events');
