@@ -16,7 +16,7 @@ class Device {
     static makeNew(options) {
         debug('Creating new Device.');
         return new Promise((resolve, reject) => {
-            var device = new Device();
+            const device = new Device();
 
             device.name = (options && options.name) || Device.DEFAULT_DEVICE_NAME;
             device.description = (options && options.description) || Device.DEFAULT_DEVICE_DESCRIPTION;

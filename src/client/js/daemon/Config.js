@@ -141,7 +141,7 @@ class Config extends EventEmitter {
     has(key) {
         assert.strictEqual(typeof key, 'string', 'Key must be a string.');
 
-        debug(`Checking if "${key}" exists.`);
+        // debug(`Checking if "${key}" exists.`);
 
         return new Promise((resolve, reject) => {
             this._ensureSettings().then((settings) => {
@@ -153,7 +153,7 @@ class Config extends EventEmitter {
     get(key) {
         assert.strictEqual(typeof key, 'string', 'Key must be a string.');
 
-        debug(`Getting "${key}".`);
+        // debug(`Getting "${key}".`);
 
         return new Promise((resolve, reject) => {
             this._ensureSettings().then((settings) => {
@@ -167,7 +167,7 @@ class Config extends EventEmitter {
         assert.strictEqual(typeof key, 'string', 'Key path must be a string.');
         assert.strictEqual(typeof options, 'object', 'Options must be an object.');
 
-        debug(`Setting "${key}".`);
+        // debug(`Setting "${key}".`);
 
         return new Promise((resolve, reject) => {
             this._ensureSettings().then((settings) => {
