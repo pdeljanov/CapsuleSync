@@ -234,35 +234,38 @@ class IndexedPartition extends Partition {
         }));
     }
 
+    createGetByStream(indexName, indexValue) {
+        // By default, the range will just include the one value.
+        let start = indexValue;
+        let end = indexValue;
+
+        // However, check for ranges in the object.
+        if (typeof indexValue === 'object' && indexValue.start !== undefined && indexValue.end !== undefined) {
+            start = indexValue.start;
+            end = indexValue.end;
+        }
+
+        // Create options for the index stream.
+        const options = {
+            start: [start, null],
+            end:   [end, undefined],
+        };
+
+        // Create an index stream to return the keys which contain the indexed value.
+        return this.createIndexStream(indexName, options).pipe(through2.obj((data, enc, cb) => {
+            // Use the keys to get the values associated with the lookup.
+            this._db.get(data.dataKey, (err, value) => {
+                cb(null, { key: this._decodeKey(data.dataKey), value: value });
+            });
+        }));
+    }
+
     getBy(indexName, indexValue) {
         return new Promise((resolve, reject) => {
-            // By default, the range will just include the one value.
-            let start = indexValue;
-            let end = indexValue;
-
-            // However, check for ranges in the object.
-            if (typeof indexValue === 'object' && indexValue.start !== undefined && indexValue.end !== undefined) {
-                start = indexValue.start;
-                end = indexValue.end;
-            }
-
-            // Create options for the index stream.
-            const options = {
-                start: [start, null],
-                end:   [end, undefined],
-            };
-
             const entries = [];
 
-            // Create an index stream to return the keys which contain the indexed value.
-            this.createIndexStream(indexName, options).pipe(through2.obj((data, enc, cb) => {
-                // Use the keys to get the values associated with the lookup.
-                this._db.get(data.dataKey, (err, value) => {
-                    cb(null, { key: this._decodeKey(data.dataKey), value: value });
-                });
-            }))
-            .on('data', (data) => {
-                // GetBy is not atomic, therefore indexed values can be deleted while fetching the indexed value.
+            this.createGetByStream(indexName, indexValue).on('data', (data) => {
+                // GetBy is not atomic, so indexed keys can be removed before fetching the indexed value.
                 // Therefore, ensure the value was fetched before pushing it.
                 if (data.value) {
                     entries.push(data);

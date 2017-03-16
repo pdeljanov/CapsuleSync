@@ -28,8 +28,8 @@ class Dispatcher {
         source.on('change', this._listeners[source.id].change);
 
         // Load the source.
-        return source.load()
-            .then(() => source.startWatch(tree))
+        return source.load(tree)
+            .then(() => source.watch())
             .catch((err) => {
                 // If there is an error loading the source, remove it and re-throw the error.
                 this.removeSource(source);
@@ -232,7 +232,7 @@ class Dispatcher {
         else {
             debug(`\u0394-Scan [${source.id}] started at '${options.at}'.`);
         }
-        return source.delta(tree, options, upsert, remove, commit, progress).then(commit);
+        return source.delta(options, upsert, remove, commit, progress).then(commit);
     }
 
 }

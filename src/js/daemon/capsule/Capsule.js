@@ -39,8 +39,8 @@ class Capsule extends EventEmitter {
 
             return db.config('capsule.core.id').set(IdGenerator(Capsule.ID_LENGTH))
                 .then(() => db.config('capsule.core.version').set(Capsule.DATABASE_VERSION))
-                .then(() => db.config('capsule.core.name').set(createInfo.capsuleName))
-                .then(() => db.config('capsule.core.desc').set(createInfo.capsuleDescription))
+                .then(() => db.config('capsule.core.name').set(createInfo.capsuleName || ''))
+                .then(() => db.config('capsule.core.desc').set(createInfo.capsuleDescription || ''))
                 .then(() => db.config('capsule.core.filters').set(FilterSet.empty().serialize()))
                 .then(() => db.config('capsule.core.exclusions').set(ExclusionSet.empty().serialize()))
                 .then(() => db.config('capsule.core.sources').set([]))
@@ -136,23 +136,23 @@ class Capsule extends EventEmitter {
         });
     }
 
-    get id() {
+    id() {
         return this._db.config('capsule.core.id').get();
     }
 
-    get name() {
+    name() {
         return this._db.config('capsule.core.name').get();
     }
 
-    set name(newName) {
+    setName(newName) {
         return this._db.config('capsule.core.name').set(newName);
     }
 
-    get description() {
+    description() {
         return this._db.config('capsule.core.desc').get();
     }
 
-    set description(newDescription) {
+    setDescription(newDescription) {
         return this._db.config('capsule.core.desc').set(newDescription);
     }
 
@@ -246,8 +246,21 @@ class Capsule extends EventEmitter {
             });
     }
 
-    browser() {
-
+    browser(at) {
+        const sourceRegex = /^\/([0-9]+)(\/.*)$/;
+        const match = sourceRegex.exec(at);
+        if (match && match.length === 3) {
+            const sourceIdx = parseInt(match[1], 10);
+            if (sourceIdx < this._dispatcher.sources.length) {
+                const browseAt = match[2];
+                return this._dispatcher.sources[sourceIdx].browser(browseAt);
+            }
+            debug(`Browse path '${at}' specifies an out-of-bounds source index of ${sourceIdx}.`);
+        }
+        else {
+            debug(`Browse path '${at}' is malformed. No source prefix.`);
+        }
+        return null;
     }
 
 }

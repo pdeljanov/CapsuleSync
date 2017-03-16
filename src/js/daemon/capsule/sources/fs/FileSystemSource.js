@@ -1,4 +1,5 @@
 const debug = require('debug')('Capsule.Sources.FileSystem.FileSystemSource');
+const assert = require('assert');
 const fs = require('original-fs');
 
 const Errors = require('../../../Errors.js');
@@ -12,6 +13,7 @@ const Watcher = require('./Watcher.js');
 const ExclusionSet = require('../../ExclusionSet.js');
 const { FilterSet } = require('../../FilterSet.js');
 const { CapsuleEntry } = require('../../CapsuleEntry.js');
+const Cursor = require('../../Cursor.js');
 
 class FileSystemSource extends Source {
 
@@ -19,6 +21,7 @@ class FileSystemSource extends Source {
         super(id);
 
         this._root = PathTools.normalize(root);
+        this._tree = null;
         this._watcher = null;
         this._lastScan = null;
         this._runningScans = [];
@@ -32,7 +35,9 @@ class FileSystemSource extends Source {
         this._exclusions = ExclusionSet.empty();
     }
 
-    load() {
+    load(tree) {
+        assert.strictEqual(typeof tree, 'object', 'Tree must be a tree adapter object.');
+
         debug(`[${this._id}] Loading FileSystemSource`);
 
         return new Promise((resolve, reject) => {
@@ -54,6 +59,9 @@ class FileSystemSource extends Source {
                 else {
                     debug(`[${this._id}] Source path exists!`);
                     debug(`[${this._id}] FileSystemSource loaded successfully!`);
+
+                    // The tree to use.
+                    this._tree = tree;
 
                     // Complete the load.
                     resolve();
@@ -106,7 +114,9 @@ class FileSystemSource extends Source {
         this.emit('deltaScan', { forceDirectoryContents: true });
     }
 
-    startWatch(tree) {
+    watch() {
+        assert(this._tree != null, 'The FileSystemSource is not loaded.');
+
         debug(`[${this._id}] Starting notification service...`);
 
         // Create a watcher to monitor for change events.
@@ -122,7 +132,7 @@ class FileSystemSource extends Source {
             };
 
             // Create a difference engine that will be used for all watch notifications.
-            const diff = new DifferenceEngine(tree, this._root, options);
+            const diff = new DifferenceEngine(this._tree, this._root, options);
 
             function removePrefixed(prefix) {
                 while (fullPaths.length > 0 && fullPaths[0].startsWith(prefix)) {
@@ -247,6 +257,8 @@ class FileSystemSource extends Source {
     }
 
     integral(insert, commit, progress) {
+        assert(this._tree != null, 'The FileSystemSource is not loaded.');
+
         // Options for the Integral scanner.
         const options = {
             followLinks:      this._options.followLinks,
@@ -272,7 +284,9 @@ class FileSystemSource extends Source {
             });
     }
 
-    delta(tree, options, upsert, remove, commit, progress) {
+    delta(options, upsert, remove, commit, progress) {
+        assert(this._tree != null, 'The FileSystemSource is not loaded.');
+
         // Options for the Delta scanner.
         const deltaOptions = {
             forceDirectoryContents: (options && options.forceDirectoryContents) || false,
@@ -280,7 +294,7 @@ class FileSystemSource extends Source {
             progressInterval:       500,
         };
 
-        const delta = new DeltaScanner(this._root, tree, deltaOptions);
+        const delta = new DeltaScanner(this._root, this._tree, deltaOptions);
 
         delta.progress = progress || (() => {});
         delta.upsert = upsert;
@@ -301,6 +315,11 @@ class FileSystemSource extends Source {
                 this._scanFinished(delta, Source.ScanCoverage.PARTIAL);
                 return Promise.reject(err);
             });
+    }
+
+    browser(at) {
+        assert(this._tree != null, 'The FileSystemSource is not loaded.');
+        return Cursor.at(this._tree, at);
     }
 
     serialize() {

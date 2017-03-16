@@ -36,7 +36,7 @@ class HttpServer {
     }
 
     _onGetCapsules(req, res) {
-        this._protocol.capsules.list().then((capsules) => {
+        this._protocol.capsules.listAll().then((capsules) => {
             const result = {
                 count:    capsules.length,
                 capsules: capsules,
@@ -72,7 +72,10 @@ class HttpServer {
         app.get('/v1/device', this._onGetDevice.bind(this));
         app.get('/v1/user', this._onGetUser.bind(this));
         app.get('/v1/status', this._onGetStatus.bind(this));
-        app.post('/v1/announce', this._onPostAnnounce.bind(this));
+        app.post('/v1/notifications', this._onPostAnnounce.bind(this));
+        // app.get('/v1/subscriptions', this._onGetSubscriptions.bind(this));
+        // app.put('/v1/subscriptions', this._onGetSubscriptions.bind(this));
+        // app.del('/v1/subscriptions', this._onGetSubscriptions.bind(this));
         app.get('/v1/capsules', this._onGetCapsules.bind(this));
         app.get('/v1/capsules/:capsule/status', this._onGetCapsuleStatus.bind(this));
         app.post('/v1/capsules/:capsule/refresh', this._onPostCapsuleRefresh.bind(this));

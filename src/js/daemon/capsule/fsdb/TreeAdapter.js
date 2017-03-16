@@ -73,6 +73,21 @@ class TreeAdapter {
         return this._partition.getBy('p', parentHash).then(entries => entries.map(getNodeDataKV));
     }
 
+    getChildStream(path, cb) {
+        return new Promise((resolve) => {
+            const parentHash = hash(TreePath.normalizePath(path));
+            this._partition.createGetByStream('p', parentHash).pipe(through2.obj((data, enc, next) => {
+                if (data.value) {
+                    cb(getNodeDataKV(data), next);
+                }
+                else {
+                    next();
+                }
+            }))
+            .on('end', resolve);
+        });
+    }
+
     getParent(path) {
         this.get(TreePath.getParentPath(path));
     }

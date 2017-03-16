@@ -6,23 +6,9 @@ const User = require('./User.js');
 const Device = require('./Device.js');
 const Capsule = require('./capsule/Capsule.js');
 const Protocol = require('./proto/Protocol1.js');
+const CapsuleAdapter = require('./proto/adapters/CapsuleAdapter.js');
 const HttpServer = require('./net/http/HttpServer.js');
 const MDNSBroadcaster = require('./net/broadcast/MDNSBroadcaster.js');
-
-class CapsuleAdapter extends Protocol.Capsule {
-    constructor(capsule) {
-        super();
-        this._capsule = capsule;
-    }
-
-    get() {
-        return Promise.reject(Errors.NOT_SUPPORTED);
-    }
-
-    list() {
-        return Promise.reject(Errors.NOT_SUPPORTED);
-    }
-}
 
 const CONFIG_FILE = 'App.Settings';
 const VERSION = '17.02.26.0';

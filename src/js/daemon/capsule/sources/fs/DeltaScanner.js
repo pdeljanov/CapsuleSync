@@ -161,7 +161,7 @@ class DeltaScanner {
         const scanner = new IntegralScanner(path, this._options);
 
         scanner.insert = (scannedEntry) => {
-            scannedEntry.path = PathTools.appendRoot(adjustedRoot, scannedEntry.path);
+            scannedEntry.prefix(adjustedRoot);
             this.upsert(scannedEntry);
         };
 

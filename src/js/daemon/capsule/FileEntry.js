@@ -66,6 +66,10 @@ class FileEntry {
         this._syncVector = time;
     }
 
+    prefix(prefix) {
+        this._path = PathTools.appendRoot(prefix, this._path);
+    }
+
     isIdentical(stat) {
         if (this.available && this.blob.isIdentical(stat)) {
             return true;
