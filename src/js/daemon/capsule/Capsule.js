@@ -189,6 +189,15 @@ class Capsule extends EventEmitter {
             .then(() => this._saveSources());
     }
 
+    subscriberMap() {
+        return this._db.config('capusle.sync.subscribers').get()
+            .then((subscribers) => {
+                const map = [];
+                Object.keys(subscribers).forEach((k) => { map[subscribers[k]] = k; });
+                return map;
+            });
+    }
+
     subscribe(device) {
         this._db.config('capusle.sync.subscribers').get()
             .then((existingSubs) => {

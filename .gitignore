@@ -17,7 +17,7 @@ $RECYCLE.BIN/
 # KDE/KDevelop
 *.kdev4
 .kdev4/
-.directory/
+.directory
 
 # Visual Studio
 *.suo

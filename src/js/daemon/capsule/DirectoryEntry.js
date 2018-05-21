@@ -26,10 +26,6 @@ class DirectoryEntry {
         return this._id;
     }
 
-    get mediaType() {
-        return this._mediaType;
-    }
-
     get displayName() {
         if (this._displayName) {
             return this._displayName;

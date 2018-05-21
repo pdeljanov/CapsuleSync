@@ -1,3 +1,6 @@
+const fs = require('fs');
+
+const { CapsuleEntry } = require('./CapsuleEntry.js');
 
 class Cursor {
 
@@ -7,31 +10,26 @@ class Cursor {
         this._entry = null;
     }
 
-    _populate() {
+    entry() {
         return new Promise((resolve) => {
-            this._tree.get(this._path).then((entry) => {
-                this._entry = entry;
-                resolve();
+            this._tree.get(this._path).then((data) => {
+                const entry = CapsuleEntry.deserialize(this._path, data);
+                resolve(entry);
             });
         });
     }
 
-    get entry() {
-        return this._entry;
-    }
-
-    data() {
-
+    data(options) {
+        return fs.createReadStream(this._path, options);
     }
 
     children(cb) {
-        return this._tree.getChildStream(this._path, cb);
+        return this._tree.getChildStream(this._path, (data, next) => {
+            const entry = CapsuleEntry.deserialize(data.path, data.data);
+            cb(entry, next);
+        });
     }
 
-    static at(tree, path) {
-        const cursor = new Cursor(tree, path);
-        return cursor._populate().then(() => Promise.resolve(cursor));
-    }
 }
 
 module.exports = Cursor;

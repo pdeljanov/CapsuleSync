@@ -319,7 +319,7 @@ class FileSystemSource extends Source {
 
     browser(at) {
         assert(this._tree != null, 'The FileSystemSource is not loaded.');
-        return Cursor.at(this._tree, at);
+        return new Cursor(this._tree, at);
     }
 
     serialize() {

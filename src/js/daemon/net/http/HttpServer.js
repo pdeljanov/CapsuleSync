@@ -63,7 +63,10 @@ class HttpServer {
     }
 
     _onGetCapsuleEntry(req, res) {
-        res.sendStatus(HttpServer.ErrorCodes.NOT_IMPLEMENTED);
+        this._protocol.capsules.entry(req.params.capsuleId, `/${req.params[0]}`).then((entry) => {
+            res.json(entry);
+        })
+        .catch(err => res.sendStatus(HttpServer._errorToStatus(err)));
     }
 
     start(port) {
@@ -77,12 +80,13 @@ class HttpServer {
         // app.put('/v1/subscriptions', this._onGetSubscriptions.bind(this));
         // app.del('/v1/subscriptions', this._onGetSubscriptions.bind(this));
         app.get('/v1/capsules', this._onGetCapsules.bind(this));
-        app.get('/v1/capsules/:capsule/status', this._onGetCapsuleStatus.bind(this));
-        app.post('/v1/capsules/:capsule/refresh', this._onPostCapsuleRefresh.bind(this));
-        app.post('/v1/capsules/:capsule/subscribe', this._onPostCapsuleSubscribe.bind(this));
-        app.post('/v1/capsules/:capsule/unsubscribe', this._onPostCapsuleUnsubscribe.bind(this));
-        app.get('/v1/capsules/:capsule/data/', this._onGetCapsuleEntry.bind(this));
+        app.get('/v1/capsules/:capsuleId/status', this._onGetCapsuleStatus.bind(this));
+        app.post('/v1/capsules/:capsuleId/refresh', this._onPostCapsuleRefresh.bind(this));
+        app.post('/v1/capsules/:capsuleId/subscribe', this._onPostCapsuleSubscribe.bind(this));
+        app.post('/v1/capsules/:capsuleId/unsubscribe', this._onPostCapsuleUnsubscribe.bind(this));
+        app.get('/v1/capsules/:capsuleId/data/*', this._onGetCapsuleEntry.bind(this));
 
+        /*
         app.param('capsule', (req, res, next, id) => {
             this._protocol.capsules.get(id).then((capsule) => {
                 req.capsule = capsule;
@@ -90,6 +94,7 @@ class HttpServer {
             .then(next)
             .catch(next);
         });
+        */
 
         return new Promise((resolve) => {
             debug(`Starting server on port ${port}...`);
