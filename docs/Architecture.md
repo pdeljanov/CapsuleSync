@@ -1,22 +1,4 @@
-# Capsule Sync
-
-Capsule Sync is a dead-simple peer-to-peer secure file synchronization solution optimized for mobile devices.
-
-## Top-to-Bottom Summary
-
-* A network is formed when two devices pair to each other. This network persists until there is only one device left.
-* Tertiary devices only need to pair to one device in the network. The other devices will be auto-paired to the tertiary device.
-* A network can consist of any number of devices.
-* Each device on the network creates a collection of **Capsules**.
-* Capsules have a file and folder matching ruleset:
- * This can match specific files and folders
- * Or, be more generic, such as match all audio/mp3 file types
-* When a Capsule is created on a device in the network, it is broadcasted to the network
-* Each device may choose which Capsules to subscribe too and sync from
-* Synchronization is defaulted to one-way, but bidirectional synchronization and conflict resolution will be fully supported by the protocol and presented as an option per Capsule
-* A **Capsule Containment Unit** is a device in the network that synchronizes and replicates all Capsules in the network.
- * The use-case is primarily targetted towards users who want an always-on server to be available for synchronization
-* *Future Idea:* Intelligently distribute Capsule contents across network such that atleast 1 replica of every file exists on the network at all times.
+# Capsule Sync Architecture
 
 ## Architecture
 
@@ -43,28 +25,28 @@ Capsule Sync is a dead-simple peer-to-peer secure file synchronization solution 
  * The original path name shall be available in the Capsule metadata
 * Filenames must be limited to 255 characters, characters will be removed from near the end of the filename
 * The following characters are illegal in paths and will be stripped:
- * < (less than)
- * \> (greater than)
- * : (colon)
- * " (double quote)
- * / (forward slash)
- * \\ (backslash)
- * | (vertical bar or pipe)
- * ? (question mark)
- * \* (asterisk)
- * ASCII control codes (<= 31 decimal)
+  * < (less than)
+  * \> (greater than)
+  * : (colon)
+  * " (double quote)
+  * / (forward slash)
+  * \\ (backslash)
+  * | (vertical bar or pipe)
+  * ? (question mark)
+  * \* (asterisk)
+  * ASCII control codes (<= 31 decimal)
 * The following filenames are illegal:
- * CON
- * PRN
- * AUX
- * CLOCK$
- * NUL
- * COM[1-9]
- * LPT[1-9]
+  * CON
+  * PRN
+  * AUX
+  * CLOCK$
+  * NUL
+  * COM[1-9]
+  * LPT[1-9]
 * Capsules shall preserve the case of a synchronized path unless it causes a conflict on the subscribed device
- * All case-insensitive filename synonyms shall be recorded in the Capsule, but only the first shall be synchronized
- * A deterministic algorithm shall enable automatic synchronization of synonomous filenames
-   * Suffix the filename with .{X} where {X} is the variant index of the filename
+  * All case-insensitive filename synonyms shall be recorded in the Capsule, but only the first shall be synchronized
+  * A deterministic algorithm shall enable automatic synchronization of synonomous filenames
+    * Suffix the filename with .{X} where {X} is the variant index of the filename
 
 #### Synchronization Strategy
 
@@ -117,13 +99,13 @@ Capsule Sync is a dead-simple peer-to-peer secure file synchronization solution 
 ### Network Management
 
 * Device Discovery (LAN)
- * Each device announces itself using mDNS
- * Fallback to multicast discovery protocol if mDNS fails
- * mDNS will contain host, port, unique device identifier, and friendly device name
+  * Each device announces itself using mDNS
+  * Fallback to multicast discovery protocol if mDNS fails
+  * mDNS will contain host, port, unique device identifier, and friendly device name
 
 * Pairing
- * Utilize mDNS to initiate pair request
- * Use Capsule Sync Account to join pre-existing network
+  * Utilize mDNS to initiate pair request
+  * Use Capsule Sync Account to join pre-existing network
 
 
 ### Synchronization
@@ -137,15 +119,3 @@ Capsule Sync is a dead-simple peer-to-peer secure file synchronization solution 
 ### Protocol
 
 * QUIC for RPC
-
-## Premium Features:
-1. Generic Capsules
- * Rulesets that are not strict exact file and folder matches
-2. Auto-organization of received Capsules
- * Use file metadata to automatically organize synchronized Capsule content (receiver only)
-3. Automatic media format conversion
- * Convert media to file formats that are better supported by the target device
-4. Over-the-internet synchronization
- * Establish a peer-to-peer connection over the internet and synchronize
-5. File streaming
- * Access files as they’re syncing by way of streaming the file immediately when needed
